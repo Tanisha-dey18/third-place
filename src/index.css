@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-cream font-sans text-espresso antialiased;
+    font-feature-settings: 'ss01', 'cv11';
+  }
+  h1, h2, h3, h4 {
+    @apply font-serif tracking-tight;
+    font-optical-sizing: auto;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-sage-dark ring-offset-2 ring-offset-cream;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+}
+
+@layer components {
+  .page { @apply mx-auto w-full max-w-page px-4 sm:px-6 lg:px-8; }
+  .eyebrow { @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-latte; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-primary { @apply btn bg-espresso text-ivory hover:bg-mocha; }
+  .btn-sage { @apply btn bg-sage-dark text-ivory hover:bg-sage; }
+  .btn-ghost { @apply btn border border-oat bg-ivory/60 text-espresso hover:bg-ivory hover:border-latte/50; }
+  .btn-link { @apply inline-flex items-center gap-1 text-sm font-medium text-espresso underline decoration-oat underline-offset-4 hover:decoration-espresso; }
+  .chip { @apply inline-flex select-none items-center gap-1.5 whitespace-nowrap rounded-full border border-oat bg-ivory px-3 py-1.5 text-[13px] text-mocha transition-colors hover:border-latte/60; }
+  .chip-on { @apply border-espresso bg-espresso text-ivory hover:border-espresso; }
+  .card { @apply rounded-2xl bg-ivory shadow-card; }
+  .input { @apply w-full rounded-xl border border-oat bg-ivory px-4 py-3 text-[15px] text-espresso placeholder:text-latte/80 focus:border-sage-dark focus:outline-none focus:ring-2 focus:ring-sage/30; }
+  .label { @apply mb-1.5 block text-sm font-medium text-mocha; }
+  .hairline { @apply border-t border-oat/70; }
+  .scroll-row { @apply -mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8; scrollbar-width: none; }
+  .scroll-row::-webkit-scrollbar { display: none; }
+}
+
+.toast-in { animation: toast-in 220ms ease-out; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.fade-in { animation: fade-in 260ms ease-out; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.shimmer { background: linear-gradient(100deg, #EAE0D0 30%, #F3ECE1 50%, #EAE0D0 70%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+/* Leaflet tweaks to match the palette */
+.leaflet-container { font-family: Inter, system-ui, sans-serif; background: #EAE0D0; }
+.leaflet-popup-content-wrapper { border-radius: 14px; box-shadow: 0 18px 40px -18px rgba(42,28,19,.4); }
+.leaflet-popup-content { margin: 12px 14px; }
+.tp-marker { background: transparent; border: 0; }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Soften default OSM tiles toward the cream/espresso palette */
+.tp-tiles-warm { filter: grayscale(0.55) sepia(0.18) brightness(1.03) contrast(0.92); }
