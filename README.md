@@ -345,3 +345,5 @@ With no `.env` at all:
 - Moderation (accepting reports, hiding reviews) happens in the Supabase dashboard; there's no in-app admin UI.
 - The AI path was implemented and its guard rails tested (no-key 503, origin rejection, input validation), but **no live provider call was made** while building, because no API keys were supplied.
 - Supabase Auth flows were implemented against the documented `supabase-js` v2 API but not run end-to-end against a live project. The SQL and RLS were tested in Postgres (PGlite) with stubbed Supabase schemas.
+#   t h i r d - p l a c e  
+ 
