@@ -3,6 +3,10 @@ import { Link } from 'react-router-dom';
 import { Flag, LocateFixed, Navigation } from 'lucide-react';
 import type { BudgetBand, FacilityKey } from '@/types';
 import { useData } from '@/context/DataContext';
+import { useAuth } from '@/context/AuthContext';
+import { areaForPreferences } from '@/lib/places/area';
+import { useAreaPlaces } from '@/hooks/usePlaces';
+import { DataSourceNote } from '@/components/DataSourceNote';
 import { BUDGET_OPTIONS, DISTANCE_OPTIONS, FACILITY_LABELS, NEIGHBOURHOODS, neighbourhoodName } from '@/lib/taxonomy';
 import { EMPTY_PREFERENCES, recommend, relaxPreferences, type ConstraintKey, type Preferences } from '@/lib/engine';
 import { directionsUrl, formatDistance } from '@/lib/geo';
@@ -22,13 +26,14 @@ const STUDY_FACILITIES: FacilityKey[] = ['charging', 'wifi', 'comfortable_seatin
 
 export default function StudyPage() {
   useDocumentTitle('Study Spots');
-  const { cafes, loading, error, retry, ratings } = useData();
+  const { ratings } = useData();
+  const { profile } = useAuth();
   const geo = useGeolocation();
   const [must, setMust] = useState<FacilityKey[]>([]);
   const [quietOnly, setQuietOnly] = useState(false);
   const [groupTables, setGroupTables] = useState(false);
   const [budget, setBudget] = useState<BudgetBand | ''>('');
-  const [area, setArea] = useState('');
+  const [area, setArea] = useState(profile?.preferredNeighbourhood ?? 'park-street');
   const [distance, setDistance] = useState<number | null>(null);
   const [report, setReport] = useState<{ id: string; name: string; n: number } | null>(null);
 
@@ -39,6 +44,7 @@ export default function StudyPage() {
       atmosphere: ['quiet', 'work_friendly'],
       requiredFacilities: must,
       budget: budget || null,
+      preferredFacilities: (['wifi', 'charging', 'ac', 'comfortable_seating'] as FacilityKey[]).filter((f) => !must.includes(f)),
       location: geo.coords ? { mode: 'current', ...geo.coords } : area ? { mode: 'neighbourhood', slug: area } : { mode: 'anywhere' },
       maxDistanceKm: geo.coords || area ? distance : null,
     }),
@@ -47,8 +53,14 @@ export default function StudyPage() {
   const [relaxed, setRelaxed] = useState<Preferences | null>(null);
   const active = relaxed ?? prefs;
 
+  const placesState = useAreaPlaces(areaForPreferences(active));
+  const cafes = placesState.places;
+  const loading = placesState.status === 'loading' && cafes.length === 0;
+  const error = placesState.status === 'error' && cafes.length === 0 ? placesState.error : null;
+  const retry = placesState.retry;
+
   const result = useMemo(() => {
-    const r = recommend(cafes, active, { ratings });
+    const r = recommend(cafes, active, { ratings, origin: geo.coords });
     // Study-specific hard filters on top of the engine.
     const keep = (id: string) => {
       const c = cafes.find((x) => x.id === id)!;
@@ -118,7 +130,7 @@ export default function StudyPage() {
             </button>
             {!geo.coords && (
               <select value={area} onChange={(e) => { setRelaxed(null); setArea(e.target.value); }} className="input !py-2.5" aria-label="Neighbourhood">
-                <option value="">Anywhere in Kolkata</option>
+                <option value="">All of Kolkata (nearest 300 to the centre)</option>
                 {NEIGHBOURHOODS.map((n) => (
                   <option key={n.slug} value={n.slug}>
                     {n.name}
@@ -150,7 +162,7 @@ export default function StudyPage() {
                 <span className="flex flex-wrap justify-center gap-2 pt-2">
                   {result.relaxations.map((r) => (
                     <button key={r.constraint} onClick={() => relax(r.constraint)} className="chip">
-                      Drop “{r.label}” <span className="text-sage-dark">+{r.gain}</span>
+                      {r.label} <span className="text-sage-dark">+{r.gain}</span>
                     </button>
                   ))}
                 </span>
@@ -163,6 +175,9 @@ export default function StudyPage() {
               <p className="mb-4 text-sm text-mocha">
                 {result.matches.length} place{result.matches.length === 1 ? '' : 's'}
                 {area && !geo.coords ? ` in or near ${neighbourhoodName(area)}` : ''}, ranked for studying.
+              </p>
+              <p className="mb-4 text-xs text-latte">
+                Most listings don’t mention Wi-Fi, sockets or noise yet. Places with that evidence rank first; the rest show “Not enough verified information”.
               </p>
               <ul className="space-y-5">
                 {result.matches.map((m) => {
@@ -216,6 +231,7 @@ export default function StudyPage() {
               </ul>
             </>
           )}
+          <DataSourceNote meta={placesState.meta} enrichmentError={placesState.enrichmentError} className="mt-8" />
         </div>
       </div>
       {report && (

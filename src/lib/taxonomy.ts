@@ -9,6 +9,8 @@ import type {
   Occasion,
   VerificationStatus,
 } from '../types';
+import { DEFAULT_CITY } from './cities';
+import { distanceKm } from './geo';
 
 // Labels and controlled vocabularies shared by the UI, the engine
 // and the natural-language parser. Keep this the single source of truth.
@@ -87,6 +89,7 @@ export const NOISE_LABELS: Record<NoiseLevel, string> = {
 export const VERIFICATION_LABELS: Record<VerificationStatus, string> = {
   cafe_verified: 'Café-verified',
   visitor_confirmed: 'Visitor-confirmed',
+  source_provided: 'Source-provided · not verified',
   community_reported: 'Community-reported',
   unverified: 'Unverified',
   unknown: 'Unknown',
@@ -94,17 +97,22 @@ export const VERIFICATION_LABELS: Record<VerificationStatus, string> = {
 
 export const VERIFICATION_HELP: Record<VerificationStatus, string> = {
   cafe_verified: 'Confirmed directly by the café.',
-  visitor_confirmed: 'Recently confirmed by a visitor on site.',
+  visitor_confirmed: 'Confirmed by a visitor and accepted by a moderator.',
+  source_provided: 'Supplied by an external data source (e.g. OpenStreetMap contributors). THIRD PLACE has not verified it.',
   community_reported: 'Reported by the community; not yet confirmed.',
   unverified: 'Listed but never checked.',
   unknown: 'We have no information about this yet.',
 };
 
+/** Statuses that count as evidence a facility exists, for STRICT requirements. */
+export const CONFIRMING_STATUSES: VerificationStatus[] = ['cafe_verified', 'visitor_confirmed', 'source_provided'];
+
 /** Confidence weight per status, used by the recommendation engine. */
 export const VERIFICATION_WEIGHT: Record<VerificationStatus, number> = {
   cafe_verified: 1,
   visitor_confirmed: 0.9,
-  community_reported: 0.6,
+  source_provided: 0.7,
+  community_reported: 0.5,
   unverified: 0.35,
   unknown: 0,
 };
@@ -136,32 +144,33 @@ export const DISTANCE_OPTIONS: { value: number | null; label: string }[] = [
   { value: null, label: 'Any distance' },
 ];
 
-export const NEIGHBOURHOODS: Neighbourhood[] = [
-  { slug: 'park-street', name: 'Park Street', region: 'central', lat: 22.5531, lng: 88.3525, blurb: 'Old-world glamour, late evenings and the city’s classic café row.' },
-  { slug: 'esplanade', name: 'Esplanade', region: 'central', lat: 22.5646, lng: 88.3511, blurb: 'Trams, tea stalls and quick, cheap pit-stops in the heart of the city.' },
-  { slug: 'college-street', name: 'College Street', region: 'north', lat: 22.5755, lng: 88.3628, blurb: 'Book Para — secondhand books, students and long conversations.' },
-  { slug: 'salt-lake', name: 'Salt Lake', region: 'east', lat: 22.5803, lng: 88.4153, blurb: 'Planned sectors, IT offices and work-day coffee.' },
-  { slug: 'new-town', name: 'New Town', region: 'east', lat: 22.5924, lng: 88.4846, blurb: 'Wide roads, new builds and roomy spaces for groups.' },
-  { slug: 'ballygunge', name: 'Ballygunge', region: 'south', lat: 22.5276, lng: 88.3654, blurb: 'Leafy lanes, old bungalows and unhurried afternoons.' },
-  { slug: 'gariahat', name: 'Gariahat', region: 'south', lat: 22.5182, lng: 88.3678, blurb: 'Market bustle by day, rooftops and sweets by evening.' },
-  { slug: 'southern-avenue', name: 'Southern Avenue', region: 'south', lat: 22.5147, lng: 88.3536, blurb: 'Near the Lakes — morning walks and slow breakfasts.' },
-  { slug: 'alipore', name: 'Alipore', region: 'south', lat: 22.5333, lng: 88.3302, blurb: 'Green, quiet and a little grand.' },
-  { slug: 'jadavpur', name: 'Jadavpur', region: 'south', lat: 22.4989, lng: 88.3714, blurb: 'University energy and pocket-friendly hangouts.' },
-];
+/** Neighbourhoods of the active city (see cities.ts). */
+export const NEIGHBOURHOODS: Neighbourhood[] = DEFAULT_CITY.neighbourhoods;
 
-export const REGION_LABELS: Record<string, string> = {
-  central: 'Central Kolkata',
-  south: 'South Kolkata',
-  east: 'East Kolkata',
-  north: 'North Kolkata',
-};
+export const REGION_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(DEFAULT_CITY.regions).map(([k, v]) => [k, v.name]),
+);
 
 export function neighbourhoodBySlug(slug: string | null | undefined): Neighbourhood | undefined {
   return NEIGHBOURHOODS.find((n) => n.slug === slug);
 }
 
 export function neighbourhoodName(slug: string | null | undefined): string {
-  return neighbourhoodBySlug(slug)?.name ?? (slug ? slug.replace(/-/g, ' ') : 'Kolkata');
+  return neighbourhoodBySlug(slug)?.name ?? DEFAULT_CITY.name;
 }
 
-export const KOLKATA_CENTER = { lat: 22.5448, lng: 88.3626 };
+/**
+ * Nearest configured neighbourhood whose (generous) area contains the point.
+ * Used only as a display label; returns null rather than guessing.
+ */
+export function nearestNeighbourhood(lat: number | null, lng: number | null): Neighbourhood | null {
+  if (lat == null || lng == null) return null;
+  let best: { n: Neighbourhood; d: number } | null = null;
+  for (const n of NEIGHBOURHOODS) {
+    const d = distanceKm(lat, lng, n.lat, n.lng);
+    if (d <= Math.max(n.radiusKm * 1.6, 1) && (!best || d / n.radiusKm < best.d / best.n.radiusKm)) best = { n, d };
+  }
+  return best?.n ?? null;
+}
+
+export const KOLKATA_CENTER = DEFAULT_CITY.center;

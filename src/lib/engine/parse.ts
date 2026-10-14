@@ -1,6 +1,8 @@
 import type { Atmosphere, FacilityKey, Occasion, Region } from '../../types';
 import { ATMOSPHERE_LABELS, FACILITY_LABELS, OCCASION_LABELS, NEIGHBOURHOODS, REGION_LABELS } from '../taxonomy';
 import { EMPTY_PREFERENCES, type Preferences } from './types';
+import { zonedDayTime } from '../time';
+import { DEFAULT_CITY } from '../cities';
 
 // ───────────────────────────────────────────────────────────────
 // Deterministic natural-language → Preferences extraction.
@@ -60,16 +62,25 @@ const FACILITY_RULES: [FacilityKey, RegExp][] = [
 ];
 
 const NEIGHBOURHOOD_ALIASES: Record<string, RegExp> = {
-  'park-street': /\b(park st(reet)?|mother teresa sarani|camac street)\b/,
+  'park-street': /\b(park st(reet)?|mother teresa sarani)\b/,
+  'new-market': /\b(new market|hogg market|lindsay st(reet)?)\b/,
   esplanade: /\b(esplanade|dharmatala|chandni chowk)\b/,
+  'camac-street': /\b(camac st(reet)?|shakespeare sarani)\b/,
   'college-street': /\b(college st(reet)?|boi ?para|book para)\b/,
-  'salt-lake': /\b(salt ?lake|sector (v|5)|bidhannagar)\b/,
+  shyambazar: /\b(shyambazar|shyam bazar)\b/,
+  'sector-v': /\b(sector (v|5|five)|salt ?lake sector v)\b/,
+  'salt-lake': /\b(salt ?lake|bidhannagar)\b/,
   'new-town': /\b(new ?town|rajarhat|eco ?park)\b/,
+  'lake-town': /\b(lake ?town)\b/,
+  'hindustan-park': /\b(hindustan park)\b/,
   ballygunge: /\b(ballygunge|ballygunj)\b/,
   gariahat: /\b(gariahat)\b/,
   'southern-avenue': /\b(southern avenue|southern ave|rabindra sarobar|the lakes?)\b/,
+  bhowanipore: /\b(bhowanipore|bhawanipur|bhowanipur)\b/,
   alipore: /\b(alipore|alipur)\b/,
+  tollygunge: /\b(tollygunge|tolly)\b/,
   jadavpur: /\b(jadavpur|jadavpore)\b/,
+  behala: /\b(behala)\b/,
 };
 
 const REGION_RULES: [Region, RegExp][] = [
@@ -107,7 +118,7 @@ function toNumber(token: string): number | null {
 
 export function parseQuery(raw: string, now: Date = new Date()): ParseResult {
   const text = ` ${raw.toLowerCase().replace(/[“”"’]/g, ' ').replace(/\s+/g, ' ')} `;
-  const prefs: Preferences = { ...EMPTY_PREFERENCES, atmosphere: [], requiredFacilities: [], keywords: [] };
+  const prefs: Preferences = { ...EMPTY_PREFERENCES, atmosphere: [], requiredFacilities: [], preferredFacilities: [], keywords: [] };
   const understood: Understood[] = [];
 
   // Occasion: first matching rule wins (rules are ordered by specificity).
@@ -136,8 +147,10 @@ export function parseQuery(raw: string, now: Date = new Date()): ParseResult {
   }
 
   // Location: specific neighbourhood beats region.
-  for (const n of NEIGHBOURHOODS) {
-    const re = NEIGHBOURHOOD_ALIASES[n.slug];
+  for (const slug of Object.keys(NEIGHBOURHOOD_ALIASES)) {
+    const n = NEIGHBOURHOODS.find((x) => x.slug === slug);
+    const re = NEIGHBOURHOOD_ALIASES[slug];
+    if (!n) continue;
     if (re && re.test(text)) {
       prefs.location = { mode: 'neighbourhood', slug: n.slug };
       understood.push({ kind: 'location', label: n.name });
@@ -170,11 +183,15 @@ export function parseQuery(raw: string, now: Date = new Date()): ParseResult {
     }
   }
 
-  // Facilities (only when explicitly mentioned — never inferred from "laptop-friendly")
+  // Facilities (only when explicitly mentioned — never inferred from "laptop-friendly").
+  // Stated needs ("need", "must", "charge my laptop") are strict; otherwise they're nice-to-haves.
+  const strict = /\b(must|need|needs|needed|require[sd]?|essential|have to|has to|should have|charge my|charging my|definitely)\b/.test(text);
+  const soft = /\b(ideally|preferably|if possible|nice to have|bonus|maybe)\b/.test(text);
   for (const [f, re] of FACILITY_RULES) {
     if (re.test(text)) {
-      prefs.requiredFacilities.push(f);
-      understood.push({ kind: 'facility', label: FACILITY_LABELS[f] });
+      if (strict && !soft) prefs.requiredFacilities.push(f);
+      else prefs.preferredFacilities.push(f);
+      understood.push({ kind: 'facility', label: `${FACILITY_LABELS[f]} (${strict && !soft ? 'must-have' : 'nice-to-have'})` });
     }
   }
   if (/\b(outdoor seating|sit outside)\b/.test(text)) prefs.seating = 'outdoor';
@@ -186,9 +203,9 @@ export function parseQuery(raw: string, now: Date = new Date()): ParseResult {
     if (h != null) {
       prefs.durationHours = h;
       understood.push({ kind: 'duration', label: `${h} hour${h === 1 ? '' : 's'}` });
-      if (h >= 2 && !prefs.requiredFacilities.includes('long_stay')) {
-        prefs.requiredFacilities.push('long_stay');
-        understood.push({ kind: 'facility', label: FACILITY_LABELS.long_stay });
+      if (h >= 2 && !prefs.requiredFacilities.includes('long_stay') && !prefs.preferredFacilities.includes('long_stay')) {
+        prefs.preferredFacilities.push('long_stay');
+        understood.push({ kind: 'facility', label: `${FACILITY_LABELS.long_stay} (nice-to-have)` });
       }
     }
   }
@@ -202,11 +219,15 @@ export function parseQuery(raw: string, now: Date = new Date()): ParseResult {
     if (tm[3] === 'am' && h === 12) h = 0;
     if (h <= 23) {
       const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-      prefs.openAt = { day: now.getDay(), time };
+      prefs.openAt = { day: zonedDayTime(DEFAULT_CITY.timezone, now).day, time };
       understood.push({ kind: 'time', label: `Open at ${time}` });
     }
+  } else if (/\b(open now|open right now|currently open|still open)\b/.test(text)) {
+    // "Now" in the city's timezone, not the device's.
+    prefs.openAt = zonedDayTime(DEFAULT_CITY.timezone, now);
+    understood.push({ kind: 'time', label: `Open now (${prefs.openAt.time}, ${DEFAULT_CITY.name} time)` });
   } else if (/\b(open late|late night|late-night)\b/.test(text)) {
-    prefs.openAt = { day: now.getDay(), time: '22:00' };
+    prefs.openAt = { day: zonedDayTime(DEFAULT_CITY.timezone, now).day, time: '22:00' };
     understood.push({ kind: 'time', label: 'Open at 22:00' });
   }
 

@@ -27,7 +27,10 @@ export interface Preferences {
   maxBudget: number | null;
   location: LocationPref;
   atmosphere: Atmosphere[];
+  /** STRICT: places that can't be shown to have these are excluded (with an explanation). */
   requiredFacilities: FacilityKey[];
+  /** SOFT: boost places that have these; unknown costs a small uncertainty penalty. */
+  preferredFacilities: FacilityKey[];
   maxDistanceKm: number | null;
   foodType: string | null;
   seating: 'indoor' | 'outdoor' | null;
@@ -46,6 +49,7 @@ export const EMPTY_PREFERENCES: Preferences = {
   location: { mode: 'anywhere' },
   atmosphere: [],
   requiredFacilities: [],
+  preferredFacilities: [],
   maxDistanceKm: null,
   foodType: null,
   seating: null,
@@ -101,6 +105,7 @@ export interface Match {
 
 export interface Relaxation {
   constraint: ConstraintKey;
+  /** What the user would do, e.g. "Make ‘Wi-Fi’ a nice-to-have". */
   label: string;
   /** How many places become eligible if this constraint is dropped. */
   gain: number;
@@ -116,4 +121,6 @@ export interface RecommendationResult {
 export interface EngineContext {
   ratings: Map<string, RatingSummary>;
   now?: Date;
+  /** Exact origin for distances (e.g. device location kept in the browser). Overrides the preference's origin. */
+  origin?: { lat: number; lng: number } | null;
 }

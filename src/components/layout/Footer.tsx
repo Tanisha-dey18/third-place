@@ -11,14 +11,20 @@ export function Footer() {
           <p className="mt-4 max-w-xs font-serif text-lg italic text-mocha">Not home. Not work. Your place.</p>
           <p className="mt-3 max-w-sm text-xs leading-relaxed text-latte">
             Starting with Kolkata. We label where every fact comes from and never invent ratings, reviews or popularity.
-            {isDemoData && ' Café records currently shown are fictional demo data.'}
+            {isDemoData && ' Development demo mode: café records shown are fictional.'}
           </p>
         </div>
         <FooterCol title="Discover" links={[['/explore', 'Explore'], ['/find', 'Find My Place'], ['/study', 'Study Spots'], ['/menu', 'Menu explorer']]} />
         <FooterCol title="Kolkata" links={[['/neighbourhoods', 'Neighbourhoods'], ['/hidden-gems', 'Hidden Gems'], ['/mood/date', 'Date Spots'], ['/collections', 'Collections']]} />
         <FooterCol title="THIRD PLACE" links={[['/about', 'About & data policy'], ['/saved', 'Saved places'], ['/profile', 'Profile']]} />
       </div>
-      <p className="page mt-10 text-[11px] text-latte">Map data © OpenStreetMap contributors. Illustrative photos via Unsplash.</p>
+      <p className="page mt-10 text-[11px] text-latte">
+        Place and map data ©{' '}
+        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="underline">
+          OpenStreetMap contributors
+        </a>{' '}
+        (ODbL). Mood photography: illustrative stock images via Unsplash, not listed venues.
+      </p>
     </footer>
   );
 }

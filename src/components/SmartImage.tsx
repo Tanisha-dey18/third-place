@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Coffee } from 'lucide-react';
 
 interface Props {
@@ -25,16 +25,28 @@ function withWidth(src: string, w: number) {
  * a broken or missing image becomes a branded tile, never a broken icon.
  */
 export function SmartImage({ src, alt, className = '', width = 600, eager = false, label }: Props) {
+  const patternId = `tp-arches-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
 
   if (!src || failed) {
+    // No photo: a branded tile with the initial, never a stock photo pretending to be the place.
+    const initial = label?.trim().charAt(0).toUpperCase();
     return (
-      <div className={`flex items-center justify-center bg-sand text-latte ${className}`} role="img" aria-label={alt}>
-        <div className="flex flex-col items-center gap-1.5">
-          <Coffee size={22} aria-hidden />
-          {label && <span className="px-3 text-center font-serif text-sm text-mocha">{label}</span>}
-        </div>
+      <div className={`relative flex items-center justify-center overflow-hidden bg-sand text-latte ${className}`} role="img" aria-label={label ? `${label} (no photo yet)` : alt}>
+        <svg className="absolute inset-0 h-full w-full opacity-[0.18]" aria-hidden>
+          <defs>
+            <pattern id={patternId} width="36" height="36" patternUnits="userSpaceOnUse">
+              <path d="M8 34V20a10 10 0 0 1 20 0v14" fill="none" stroke="#8A7562" strokeWidth="1.4" />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill={`url(#${patternId})`} />
+        </svg>
+        {initial ? (
+          <span className="relative font-serif text-5xl text-mocha/80">{initial}</span>
+        ) : (
+          <Coffee size={22} className="relative" aria-hidden />
+        )}
       </div>
     );
   }

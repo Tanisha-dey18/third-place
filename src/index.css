@@ -30,7 +30,7 @@
   .btn-primary { @apply btn bg-espresso text-ivory hover:bg-mocha; }
   .btn-sage { @apply btn bg-sage-dark text-ivory hover:bg-sage; }
   .btn-ghost { @apply btn border border-oat bg-ivory/60 text-espresso hover:bg-ivory hover:border-latte/50; }
-  .btn-link { @apply inline-flex items-center gap-1 text-sm font-medium text-espresso underline decoration-oat underline-offset-4 hover:decoration-espresso; }
+  .btn-link { @apply inline-flex min-h-[28px] items-center gap-1 py-1 text-sm font-medium text-espresso underline decoration-oat underline-offset-4 hover:decoration-espresso; }
   .chip { @apply inline-flex select-none items-center gap-1.5 whitespace-nowrap rounded-full border border-oat bg-ivory px-3 py-1.5 text-[13px] text-mocha transition-colors hover:border-latte/60; }
   .chip-on { @apply border-espresso bg-espresso text-ivory hover:border-espresso; }
   .card { @apply rounded-2xl bg-ivory shadow-card; }

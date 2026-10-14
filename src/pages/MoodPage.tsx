@@ -14,7 +14,8 @@ export default function MoodPage() {
         title: mood.title,
         blurb: mood.blurb,
         image: mood.image,
-        match: mood.match,
+        match: mood.match.maxPrice != null ? { maxPrice: mood.match.maxPrice } : undefined,
+        evidenceNote: mood.evidence,
         rankOccasion: mood.occasion,
         rankAtmosphere: mood.atmosphere,
         suggestedFacilities: mood.suggestedFacilities,
@@ -30,6 +31,7 @@ export function HiddenGemsPage() {
         eyebrow: 'Hidden gems',
         title: 'Quietly wonderful',
         blurb: 'Small, lesser-known places our curators have tagged as worth seeking out. This is an editorial tag, not a measure of popularity.',
+        evidenceNote: 'Hidden gems come only from THIRD PLACE’s own verified records. If none are listed for this area yet, the list is empty; we never auto-generate picks.',
         image: 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=1400&q=70',
         match: { tag: 'hidden-gem' },
       }}

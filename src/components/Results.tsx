@@ -56,7 +56,7 @@ export function Results({ result, onRelax, aiNotes = {}, limit = 10, onShowMore 
           <div className="flex flex-wrap gap-2">
             {relaxations.map((r) => (
               <button key={r.constraint} onClick={() => onRelax(r.constraint)} className="chip hover:bg-ivory">
-                Drop “{r.label}” <span className="text-sage-dark">+{r.gain}</span>
+                {r.label} <span className="text-sage-dark">+{r.gain}</span>
               </button>
             ))}
           </div>

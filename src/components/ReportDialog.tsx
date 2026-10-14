@@ -37,6 +37,7 @@ export function ReportDialog({
   const [type, setType] = useState<ReportType>(initialType);
   const [facility, setFacility] = useState<FacilityKey | ''>(initialFacility ?? 'charging');
   const [value, setValue] = useState('');
+  const [avail, setAvail] = useState<'yes' | 'no' | ''>('');
   const [details, setDetails] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -55,10 +56,19 @@ export function ReportDialog({
       setError(parsed.error.issues[0]?.message ?? 'Please check the form');
       return;
     }
+    if (type === 'facility' && !avail) {
+      setError('Tell us whether it is available or not.');
+      return;
+    }
     setSending(true);
     setError(null);
     try {
-      await community.submitReport({ cafeId, ...parsed.data, facility: parsed.data.facility as FacilityKey | null });
+      await community.submitReport({
+        cafeId,
+        ...parsed.data,
+        facility: parsed.data.facility as FacilityKey | null,
+        reportedAvailable: type === 'facility' ? avail === 'yes' : null,
+      });
       toast.show(community.mode === 'device' ? 'Report saved on this device (demo mode — not sent anywhere)' : 'Thanks! Your report will be reviewed before anything changes.');
       setDetails('');
       setValue('');
@@ -73,7 +83,7 @@ export function ReportDialog({
   return (
     <Modal open={open} onClose={onClose} title="Report incorrect information">
       <p className="-mt-2 mb-4 text-sm text-mocha">
-        Help keep <strong>{cafeName}</strong> accurate. Reports are reviewed. They’re shown as community-reported, never as verified fact.
+        Help keep <strong>{cafeName}</strong> accurate. Reports are reviewed by a moderator. Until then they count only as unverified community reports, never as verified fact.
       </p>
       {needsLogin ? (
         <div className="rounded-2xl bg-sand/60 p-4 text-sm">
@@ -107,6 +117,19 @@ export function ReportDialog({
                 ))}
               </select>
             </label>
+          )}
+          {type === 'facility' && (
+            <fieldset>
+              <legend className="label">Is it available?</legend>
+              <div className="flex gap-2">
+                {(['yes', 'no'] as const).map((v) => (
+                  <label key={v} className={`chip cursor-pointer ${avail === v ? 'chip-on' : ''}`}>
+                    <input type="radio" name="avail" value={v} checked={avail === v} onChange={() => setAvail(v)} className="sr-only" />
+                    {v === 'yes' ? 'Yes, it’s there' : 'No, it isn’t'}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
           )}
           {(type === 'facility' || type === 'menu_price' || type === 'opening_hours') && (
             <label className="block">

@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, CircleMarker } from 'react-leaflet';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, CircleMarker } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Link } from 'react-router-dom';
 import type { Cafe } from '@/types';
 import { config } from '@/lib/config';
-import { KOLKATA_CENTER, neighbourhoodName } from '@/lib/taxonomy';
+import { neighbourhoodName } from '@/lib/taxonomy';
+import { DEFAULT_CITY, type Bounds } from '@/lib/cities';
 import { formatPriceRange } from '@/lib/format';
 import { directionsUrl } from '@/lib/geo';
 
@@ -23,6 +24,10 @@ export interface MapViewProps {
   className?: string;
   /** Single-café mode for detail pages. */
   single?: boolean;
+  /** When set, the map only re-fits to the markers when this key changes (lets users pan freely). */
+  fitKey?: string;
+  /** Called (debounced) after the user pans or zooms. */
+  onBoundsChange?(b: Bounds, zoom: number): void;
 }
 
 const icon = (selected: boolean, demo: boolean) =>
@@ -34,15 +39,36 @@ const icon = (selected: boolean, demo: boolean) =>
     html: `<svg width="30" height="38" viewBox="0 0 30 38" aria-hidden="true"><path d="M15 37s13-12.3 13-22A13 13 0 0 0 2 15c0 9.7 13 22 13 22z" fill="${selected ? '#4F5C3F' : '#2A1C13'}" stroke="#FBF8F3" stroke-width="2"/><circle cx="15" cy="15" r="${selected ? 5.5 : 4.5}" fill="${demo ? '#C9D2B8' : '#FBF8F3'}"/></svg>`,
   });
 
-function FitBounds({ points, single }: { points: [number, number][]; single?: boolean }) {
+function FitBounds({ points, single, fitKey }: { points: [number, number][]; single?: boolean; fitKey?: string }) {
   const map = useMap();
-  const key = points.map((p) => p.join(',')).join('|');
+  const key = fitKey ?? points.map((p) => p.join(',')).join('|');
+  const fitted = useRef<string | null>(null);
   useEffect(() => {
-    if (!points.length) return;
+    // Fit once per key, as soon as there are points to fit (results may arrive after the key changes).
+    if (!points.length || fitted.current === key) return;
+    fitted.current = key;
     if (single || points.length === 1) map.setView(points[0], 15, { animate: false });
     else map.fitBounds(L.latLngBounds(points), { padding: [36, 36], maxZoom: 15 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, map, single]);
+  }, [key, map, single, points.length]);
+  return null;
+}
+
+/** Debounced viewport reporting for map-driven discovery. */
+function BoundsReporter({ onChange }: { onChange(b: Bounds, zoom: number): void }) {
+  const timer = useRef<number | null>(null);
+  const map = useMapEvents({
+    moveend() {
+      if (timer.current) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => {
+        const b = map.getBounds();
+        onChange({ south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() }, map.getZoom());
+      }, 600);
+    },
+  });
+  useEffect(() => () => {
+    if (timer.current) window.clearTimeout(timer.current);
+  }, []);
   return null;
 }
 
@@ -66,7 +92,7 @@ function PanTo({ cafe }: { cafe: Cafe | undefined }) {
   return null;
 }
 
-export default function MapView({ cafes, selectedId, onSelect, origin, className = 'h-[480px]', single }: MapViewProps) {
+export default function MapView({ cafes, selectedId, onSelect, origin, className = 'h-[480px]', single, fitKey, onBoundsChange }: MapViewProps) {
   const [tileErrors, setTileErrors] = useState(0);
   const located = useMemo(() => cafes.filter((c) => c.lat != null && c.lng != null), [cafes]);
   const missing = cafes.length - located.length;
@@ -88,8 +114,13 @@ export default function MapView({ cafes, selectedId, onSelect, origin, className
   return (
     <div className={`relative overflow-hidden rounded-2xl shadow-card ${className}`}>
       <MapContainer
-        center={[KOLKATA_CENTER.lat, KOLKATA_CENTER.lng]}
-        zoom={12}
+        center={[DEFAULT_CITY.center.lat, DEFAULT_CITY.center.lng]}
+        zoom={DEFAULT_CITY.defaultZoom}
+        minZoom={11}
+        maxBounds={[
+          [DEFAULT_CITY.bounds.south - 0.15, DEFAULT_CITY.bounds.west - 0.15],
+          [DEFAULT_CITY.bounds.north + 0.15, DEFAULT_CITY.bounds.east + 0.15],
+        ]}
         scrollWheelZoom={false}
         className="h-full w-full"
         attributionControl
@@ -102,11 +133,12 @@ export default function MapView({ cafes, selectedId, onSelect, origin, className
           eventHandlers={{ tileerror: () => setTileErrors((n) => n + 1) }}
         />
         <KeepSized />
-        <FitBounds points={points} single={single} />
+        <FitBounds points={points} single={single} fitKey={fitKey} />
+        {onBoundsChange && <BoundsReporter onChange={onBoundsChange} />}
         {!single && <PanTo cafe={selected} />}
         {origin && (
           <CircleMarker center={[origin.lat, origin.lng]} radius={8} pathOptions={{ color: '#FBF8F3', weight: 3, fillColor: '#B5704A', fillOpacity: 1 }}>
-            <Popup>Your search location</Popup>
+            <Popup>Your approximate location (not stored)</Popup>
           </CircleMarker>
         )}
         {located.map((c) => (
@@ -120,10 +152,10 @@ export default function MapView({ cafes, selectedId, onSelect, origin, className
           >
             <Popup>
               <div className="min-w-[180px] font-sans">
-                {c.isDemo && <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-latte">Demo record</p>}
+                {c.isDemo && <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-latte">Fictional demo record</p>}
                 <p className="font-serif text-base font-semibold text-espresso">{c.name}</p>
                 <p className="text-xs text-mocha">
-                  {neighbourhoodName(c.neighbourhood)}
+                  {c.neighbourhood ? neighbourhoodName(c.neighbourhood) : DEFAULT_CITY.name}
                   {formatPriceRange(c) ? ` · ${formatPriceRange(c)} / person` : ''}
                 </p>
                 <div className="mt-2 flex gap-3 text-xs">

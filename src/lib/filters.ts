@@ -1,60 +1,66 @@
-import type { Atmosphere, BudgetBand, Cafe, FacilityKey, Occasion, RatingSummary } from '../types';
-import { budgetOption, neighbourhoodName } from './taxonomy';
-import { cafeDistanceKm } from './geo';
+import type { Atmosphere, BudgetBand, Cafe, FacilityKey, PlaceCategory, RatingSummary } from '../types';
+import { budgetOption, CONFIRMING_STATUSES, neighbourhoodName } from './taxonomy';
+import { cafeDistanceKm, isOpenAt } from './geo';
+import { zonedDayTime } from './time';
+import { getCity } from './cities';
 
 // Plain, predictable filters for the Explore page.
 // Semantics: categories combine with AND. Within atmosphere, ANY selected
-// mood matches. Within facilities, ALL selected must be CONFIRMED available —
-// unknown never counts as a yes.
+// mood matches. Within facilities, ALL selected must be backed by evidence
+// (café-verified, visitor-confirmed or source-provided) — unknown never
+// counts as a yes. "Open now" uses the city's timezone and needs known hours.
 
 export interface ExploreFilters {
   q: string;
-  area: string | null;
   budget: BudgetBand | null;
   maxPrice: number | null;
-  occasion: Occasion | null;
   atmosphere: Atmosphere[];
   facilities: FacilityKey[];
+  categories: PlaceCategory[];
+  cuisine: string | null;
+  openNow: boolean;
   tag: string | null;
 }
 
-export type SortKey = 'relevance' | 'distance' | 'price_asc' | 'price_desc' | 'rating' | 'newest';
+export const EMPTY_FILTERS: ExploreFilters = { q: '', budget: null, maxPrice: null, atmosphere: [], facilities: [], categories: [], cuisine: null, openNow: false, tag: null };
+
+export type SortKey = 'relevance' | 'distance' | 'name' | 'price_asc' | 'price_desc' | 'rating';
 
 export const SORT_LABELS: Record<SortKey, string> = {
   relevance: 'Best match',
   distance: 'Distance',
+  name: 'Name (A–Z)',
   price_asc: 'Price: low to high',
   price_desc: 'Price: high to low',
-  rating: 'Verified rating',
-  newest: 'Recently added',
+  rating: 'Rating (real reviews)',
 };
 
 export interface FilterOutcome {
   list: Cafe[];
-  /** Places excluded only because a selected facility or price is unconfirmed. */
+  /** Places excluded only because something you asked for isn't known there. */
   hiddenUnknown: number;
 }
 
 function matchesText(c: Cafe, q: string): boolean {
   const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
   if (!tokens.length) return true;
-  const hay = [c.name, c.tagline, neighbourhoodName(c.neighbourhood), c.foodTypes.join(' '), c.tags.join(' '), c.menu.map((m) => m.name).join(' ')]
+  const hay = [c.name, c.tagline, c.neighbourhood ? neighbourhoodName(c.neighbourhood) : '', c.address ?? '', c.foodTypes.join(' '), c.tags.join(' '), (c.menu ?? []).map((m) => m.name).join(' ')]
     .join(' ')
     .toLowerCase();
   return tokens.every((t) => hay.includes(t));
 }
 
-export function applyFilters(cafes: Cafe[], f: ExploreFilters): FilterOutcome {
+export function applyFilters(cafes: Cafe[], f: ExploreFilters, now: Date = new Date()): FilterOutcome {
   let hiddenUnknown = 0;
   const band = budgetOption(f.budget);
   const ceiling = f.maxPrice ?? band?.max ?? null;
   const floor = f.maxPrice == null ? band?.min ?? 0 : 0;
   const list = cafes.filter((c) => {
     if (!matchesText(c, f.q)) return false;
-    if (f.area && c.neighbourhood !== f.area) return false;
-    if (f.occasion && !c.occasions.includes(f.occasion)) return false;
     if (f.atmosphere.length && !f.atmosphere.some((a) => c.atmosphere.includes(a))) return false;
     if (f.tag && !c.tags.includes(f.tag)) return false;
+    if (f.categories.length && !f.categories.includes(c.category)) return false;
+    if (f.cuisine && !c.foodTypes.some((x) => x.toLowerCase() === f.cuisine!.toLowerCase())) return false;
     let unknown = false;
     if (ceiling != null || floor > 0) {
       if (c.priceMin == null) unknown = true;
@@ -65,9 +71,14 @@ export function applyFilters(cafes: Cafe[], f: ExploreFilters): FilterOutcome {
     }
     for (const key of f.facilities) {
       const rec = c.facilities.find((x) => x.key === key);
-      if (rec?.available === false) return false;
-      // "Confirmed" = available AND checked by the café or a recent visitor.
-      if (rec?.available !== true || (rec.status !== 'cafe_verified' && rec.status !== 'visitor_confirmed')) unknown = true;
+      if (rec?.available === false && CONFIRMING_STATUSES.includes(rec.status)) return false;
+      if (rec?.available !== true || !CONFIRMING_STATUSES.includes(rec.status)) unknown = true;
+    }
+    if (f.openNow) {
+      const { day, time } = zonedDayTime(getCity(c.city).timezone, now);
+      const open = isOpenAt(c.hours.value, day, time);
+      if (open === false) return false;
+      if (open == null) unknown = true;
     }
     if (unknown) {
       hiddenUnknown++;
@@ -76,6 +87,13 @@ export function applyFilters(cafes: Cafe[], f: ExploreFilters): FilterOutcome {
     return true;
   });
   return { list, hiddenUnknown };
+}
+
+/** Cuisine values present in a result set (filters only offer what the data has). */
+export function cuisineFacets(cafes: Cafe[]): string[] {
+  const counts = new Map<string, number>();
+  for (const c of cafes) for (const f of c.foodTypes) counts.set(f, (counts.get(f) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 12).map(([k]) => k);
 }
 
 export function sortCafes(
@@ -89,6 +107,8 @@ export function sortCafes(
     case 'distance':
       if (!opts.origin) return out;
       return out.sort((a, b) => (cafeDistanceKm(a, opts.origin) ?? last) - (cafeDistanceKm(b, opts.origin) ?? last));
+    case 'name':
+      return out.sort((a, b) => a.name.localeCompare(b.name));
     case 'price_asc':
       return out.sort((a, b) => (a.priceMin ?? last) - (b.priceMin ?? last));
     case 'price_desc':
@@ -102,8 +122,6 @@ export function sortCafes(
         if (!rb) return -1;
         return rb.average - ra.average || rb.count - ra.count;
       });
-    case 'newest':
-      return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     case 'relevance':
     default:
       if (opts.scores) return out.sort((a, b) => (opts.scores!.get(b.id) ?? 0) - (opts.scores!.get(a.id) ?? 0) || a.name.localeCompare(b.name));

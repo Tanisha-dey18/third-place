@@ -17,7 +17,7 @@ const num = (v: unknown, min: number, max: number): number | null =>
 
 export function sanitizePreferences(input: unknown): Preferences {
   const o = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
-  const out: Preferences = { ...EMPTY_PREFERENCES, atmosphere: [], requiredFacilities: [], keywords: [] };
+  const out: Preferences = { ...EMPTY_PREFERENCES, atmosphere: [], requiredFacilities: [], preferredFacilities: [], keywords: [] };
 
   if (OCCASIONS.includes(o.occasion as Occasion)) out.occasion = o.occasion as Occasion;
   if (BANDS.includes(o.budget as BudgetBand)) out.budget = o.budget as BudgetBand;
@@ -35,6 +35,8 @@ export function sanitizePreferences(input: unknown): Preferences {
   if (Array.isArray(o.atmosphere)) out.atmosphere = Array.from(new Set(o.atmosphere.filter((a): a is Atmosphere => ATMOSPHERES.includes(a))));
   if (Array.isArray(o.requiredFacilities))
     out.requiredFacilities = Array.from(new Set(o.requiredFacilities.filter((f): f is FacilityKey => FACILITIES.includes(f))));
+  if (Array.isArray(o.preferredFacilities))
+    out.preferredFacilities = Array.from(new Set(o.preferredFacilities.filter((f): f is FacilityKey => FACILITIES.includes(f) && !out.requiredFacilities.includes(f))));
   out.maxDistanceKm = num(o.maxDistanceKm, 0.1, 50);
   if (typeof o.foodType === 'string' && o.foodType.length <= 40) out.foodType = o.foodType.trim().toLowerCase() || null;
   if (o.seating === 'indoor' || o.seating === 'outdoor') out.seating = o.seating;

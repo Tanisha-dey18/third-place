@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Star, Trash2 } from 'lucide-react';
+import { Flag, Star, Trash2 } from 'lucide-react';
 import type { Review } from '@/types';
 import { useData } from '@/context/DataContext';
 import { useAuth } from '@/context/AuthContext';
@@ -8,6 +8,15 @@ import { useToast } from '@/context/ToastContext';
 import { reviewSchema } from '@/lib/validation';
 import { formatDate } from './VerificationBadge';
 import { ErrorState } from './States';
+import { Modal } from './Modal';
+
+const FLAG_REASONS: [string, string][] = [
+  ['spam', 'Spam or advertising'],
+  ['offensive', 'Offensive or abusive'],
+  ['personal_info', 'Shares personal information'],
+  ['not_a_real_visit', 'Doesn’t seem like a real visit'],
+  ['other', 'Something else'],
+];
 
 export function ReviewSection({ cafeId, cafeName }: { cafeId: string; cafeName: string }) {
   const { community, refreshRatings, ratings } = useData();
@@ -45,14 +54,14 @@ export function ReviewSection({ cafeId, cafeName }: { cafeId: string; cafeName: 
     setSending(true);
     setError(null);
     try {
-      await community.submitReview({ cafeId, ...parsed.data, photo });
+      await community.submitReview({ cafeId, ...parsed.data, photo }, mine ?? null);
       setBody('');
       setRating(0);
       setVisitedOn('');
       setPhoto(null);
       toast.show(community.mode === 'device' ? 'Review saved on this device only' : 'Review published');
       load();
-      refreshRatings();
+      refreshRatings([cafeId]);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -60,11 +69,28 @@ export function ReviewSection({ cafeId, cafeName }: { cafeId: string; cafeName: 
     }
   };
 
-  const remove = async (id: string) => {
+  const remove = async (review: Review) => {
     try {
-      await community.deleteReview(id);
+      await community.deleteReview(review);
       load();
-      refreshRatings();
+      refreshRatings([cafeId]);
+    } catch (err) {
+      toast.show((err as Error).message, 'error');
+    }
+  };
+
+  const [flagging, setFlagging] = useState<Review | null>(null);
+  const [flagReason, setFlagReason] = useState('spam');
+  const flag = async (review: Review) => {
+    setFlagReason('spam');
+    setFlagging(review);
+  };
+  const submitFlag = async () => {
+    if (!flagging) return;
+    try {
+      await community.flagReview(flagging.id, flagReason);
+      toast.show('Thanks, a moderator will review it.');
+      setFlagging(null);
     } catch (err) {
       toast.show((err as Error).message, 'error');
     }
@@ -110,8 +136,13 @@ export function ReviewSection({ cafeId, cafeName }: { cafeId: string; cafeName: 
               </div>
               <p className="mt-3 whitespace-pre-line text-[15px] leading-relaxed text-espresso">{r.body}</p>
               {r.photoUrl && <img src={r.photoUrl} alt={`Visitor photo of ${cafeName}`} loading="lazy" className="mt-3 max-h-64 rounded-xl object-cover" />}
+              {!r.isLocal && mine?.id !== r.id && user && (
+                <button onClick={() => void flag(r)} className="btn-link mt-3 text-xs text-latte" aria-label={`Flag review by ${r.authorName}`}>
+                  <Flag size={12} aria-hidden /> Flag
+                </button>
+              )}
               {mine?.id === r.id && (
-                <button onClick={() => void remove(r.id)} className="btn-link mt-3 text-clay">
+                <button onClick={() => void remove(r)} className="btn-link mt-3 text-clay">
                   <Trash2 size={14} aria-hidden /> Delete my review
                 </button>
               )}
@@ -131,7 +162,7 @@ export function ReviewSection({ cafeId, cafeName }: { cafeId: string; cafeName: 
           </p>
         ) : (
           <form onSubmit={submit} className="mt-4 space-y-4">
-            {community.mode === 'device' && <p className="rounded-xl bg-sand/60 p-3 text-xs text-mocha">Demo mode: your review stays in this browser and isn’t shared with anyone.</p>}
+            {community.mode === 'device' && <p className="rounded-xl bg-sand/60 p-3 text-xs text-mocha">Accounts aren’t configured on this deployment, so your review stays in this browser and isn’t shared with anyone.</p>}
             <fieldset>
               <legend className="label">Your rating</legend>
               <div className="flex gap-1" role="radiogroup">
@@ -181,6 +212,28 @@ export function ReviewSection({ cafeId, cafeName }: { cafeId: string; cafeName: 
           </form>
         )}
       </div>
+      <Modal open={!!flagging} onClose={() => setFlagging(null)} title="Flag this review">
+        <fieldset>
+          <legend className="label">What’s wrong with it?</legend>
+          <div className="space-y-1.5">
+            {FLAG_REASONS.map(([v, l]) => (
+              <label key={v} className="flex cursor-pointer items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm hover:bg-cream">
+                <input type="radio" name="flag-reason" value={v} checked={flagReason === v} onChange={() => setFlagReason(v)} className="accent-espresso" />
+                {l}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <p className="mt-3 text-xs text-latte">Flags go to a moderator. The review stays up until they decide.</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={() => setFlagging(null)} className="btn-ghost">
+            Cancel
+          </button>
+          <button onClick={() => void submitFlag()} className="btn-primary">
+            Send flag
+          </button>
+        </div>
+      </Modal>
     </section>
   );
 }

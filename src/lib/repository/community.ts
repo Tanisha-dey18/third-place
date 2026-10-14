@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { readLocal, uid, writeLocal } from '@/lib/storage';
 
 export interface ReviewInput {
-  cafeId: string;
+  cafeId: string; // place key
   rating: number;
   body: string;
   visitedOn: string | null;
@@ -11,22 +11,29 @@ export interface ReviewInput {
 }
 
 /**
- * Reviews, ratings and correction reports.
+ * Reviews, ratings, correction reports and review flags, keyed by place key.
  * - With Supabase + a signed-in user: stored in the database (RLS-protected).
  * - Otherwise: stored only in this browser and clearly labelled as such.
  * Ratings are always computed from actual review records — never seeded.
+ *
+ * Moderation policy: reviews publish immediately (one per person per place,
+ * length-checked, daily limit enforced in the database) and can be flagged
+ * by anyone signed in; moderators hide them. Reports never change displayed
+ * facts until a moderator accepts them.
  */
 export interface CommunityRepository {
   readonly mode: 'account' | 'device';
-  ratingSummaries(): Promise<RatingSummary[]>;
-  listReviews(cafeId: string): Promise<Review[]>;
-  submitReview(input: ReviewInput): Promise<Review>;
-  deleteReview(reviewId: string): Promise<void>;
+  ratingSummaries(keys: string[]): Promise<RatingSummary[]>;
+  listReviews(placeKey: string): Promise<Review[]>;
+  submitReview(input: ReviewInput, existing?: Review | null): Promise<Review>;
+  deleteReview(review: Review): Promise<void>;
   submitReport(report: FacilityReport): Promise<void>;
+  flagReview(reviewId: string, reason: string): Promise<void>;
 }
 
-const MAX_PHOTO_BYTES = 3 * 1024 * 1024;
-const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+export const MAX_PHOTO_BYTES = 3 * 1024 * 1024;
+export const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const BUCKET = 'review-photos';
 
 function summarise(reviews: Pick<Review, 'cafeId' | 'rating'>[]): RatingSummary[] {
   const acc = new Map<string, { sum: number; count: number }>();
@@ -45,12 +52,13 @@ export class LocalCommunityRepository implements CommunityRepository {
   private all(): Review[] {
     return readLocal<Review[]>('reviews', []);
   }
-  async ratingSummaries() {
-    return summarise(this.all());
+  async ratingSummaries(keys: string[]) {
+    const set = new Set(keys);
+    return summarise(this.all().filter((r) => set.has(r.cafeId)));
   }
-  async listReviews(cafeId: string) {
+  async listReviews(placeKey: string) {
     return this.all()
-      .filter((r) => r.cafeId === cafeId)
+      .filter((r) => r.cafeId === placeKey)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
   async submitReview(input: ReviewInput) {
@@ -67,22 +75,25 @@ export class LocalCommunityRepository implements CommunityRepository {
       createdAt: new Date().toISOString(),
       isLocal: true,
     };
-    writeLocal('reviews', [...existing, review]);
+    writeLocal('reviews', [...existing, review].slice(-200));
     return review;
   }
-  async deleteReview(reviewId: string) {
-    writeLocal('reviews', this.all().filter((r) => r.id !== reviewId));
+  async deleteReview(review: Review) {
+    writeLocal('reviews', this.all().filter((r) => r.id !== review.id));
   }
   async submitReport(report: FacilityReport) {
     const reports = readLocal<(FacilityReport & { createdAt: string })[]>('reports', []);
     writeLocal('reports', [...reports, { ...report, createdAt: new Date().toISOString() }].slice(-100));
+  }
+  async flagReview() {
+    /* nothing to moderate locally */
   }
 }
 
 // ── Supabase implementation ───────────────────────────────────
 interface PublicReviewRow {
   id: string;
-  cafe_id: string;
+  place_key: string;
   user_id: string;
   author_name: string | null;
   rating: number;
@@ -100,63 +111,71 @@ export class SupabaseCommunityRepository implements CommunityRepository {
   }
   private async requireUser() {
     const { data } = await this.db.auth.getUser();
-    if (!data.user) throw new Error('Please sign in first');
+    if (!data.user) throw new Error('Please log in first.');
     return data.user;
   }
   private photoUrl(path: string | null): string | null {
     if (!path) return null;
-    return this.db.storage.from('review-photos').getPublicUrl(path).data.publicUrl;
+    return this.db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
   }
-  async ratingSummaries() {
-    const { data, error } = await this.db.from('cafe_rating_summary').select('cafe_id, average_rating, review_count');
+  private async removePhoto(path: string | null | undefined) {
+    if (!path) return;
+    await this.db.storage.from(BUCKET).remove([path]).catch(() => undefined);
+  }
+  async ratingSummaries(keys: string[]) {
+    if (!keys.length) return [];
+    const { data, error } = await this.db.from('cafe_rating_summary').select('place_key, average_rating, review_count').in('place_key', keys.slice(0, 100));
     if (error) throw new Error(error.message);
-    return (data ?? []).map((r: { cafe_id: string; average_rating: number; review_count: number }) => ({
-      cafeId: r.cafe_id,
+    return (data ?? []).map((r: { place_key: string; average_rating: number; review_count: number }) => ({
+      cafeId: r.place_key,
       average: Number(r.average_rating),
       count: Number(r.review_count),
     }));
   }
-  async listReviews(cafeId: string) {
-    const { data, error } = await this.db
-      .from('public_reviews')
-      .select('*')
-      .eq('cafe_id', cafeId)
-      .order('created_at', { ascending: false })
-      .limit(50);
+  async listReviews(placeKey: string) {
+    const { data, error } = await this.db.from('public_reviews').select('*').eq('place_key', placeKey).order('created_at', { ascending: false }).limit(50);
     if (error) throw new Error(error.message);
     return (data as PublicReviewRow[]).map((r) => ({
       id: r.id,
-      cafeId: r.cafe_id,
+      cafeId: r.place_key,
       userId: r.user_id,
       authorName: r.author_name || 'THIRD PLACE member',
       rating: r.rating,
       body: r.body,
       visitedOn: r.visited_on,
       photoUrl: this.photoUrl(r.photo_path),
+      photoPath: r.photo_path,
       createdAt: r.created_at,
       isLocal: false,
     }));
   }
-  async submitReview(input: ReviewInput) {
+  async submitReview(input: ReviewInput, existing?: Review | null) {
     const user = await this.requireUser();
-    let photoPath: string | null = null;
+    let photoPath: string | null = existing?.photoPath ?? null;
+    let uploaded: string | null = null;
     if (input.photo) {
-      if (!PHOTO_TYPES.includes(input.photo.type)) throw new Error('Photos must be JPEG, PNG or WebP');
-      if (input.photo.size > MAX_PHOTO_BYTES) throw new Error('Photos must be under 3 MB');
-      const ext = input.photo.type.split('/')[1];
-      photoPath = `${user.id}/${uid()}.${ext}`;
-      const { error: upErr } = await this.db.storage.from('review-photos').upload(photoPath, input.photo, { contentType: input.photo.type, upsert: false });
+      if (!PHOTO_TYPES.includes(input.photo.type)) throw new Error('Photos must be JPEG, PNG or WebP.');
+      if (input.photo.size > MAX_PHOTO_BYTES) throw new Error('Photos must be under 3 MB.');
+      const ext = input.photo.type === 'image/jpeg' ? 'jpg' : input.photo.type.split('/')[1];
+      uploaded = `${user.id}/${uid()}.${ext}`;
+      const { error: upErr } = await this.db.storage.from(BUCKET).upload(uploaded, input.photo, { contentType: input.photo.type, upsert: false });
       if (upErr) throw new Error(`Photo upload failed: ${upErr.message}`);
+      photoPath = uploaded;
     }
+    // user_id defaults to auth.uid() in the database and RLS rejects any other value.
     const { data, error } = await this.db
       .from('reviews')
       .upsert(
-        { user_id: user.id, cafe_id: input.cafeId, rating: input.rating, body: input.body, visited_on: input.visitedOn, photo_path: photoPath },
-        { onConflict: 'user_id,cafe_id' },
+        { user_id: user.id, place_key: input.cafeId, rating: input.rating, body: input.body, visited_on: input.visitedOn, photo_path: photoPath },
+        { onConflict: 'user_id,place_key' },
       )
       .select('id, created_at')
       .single();
-    if (error) throw new Error(error.message);
+    if (error) {
+      await this.removePhoto(uploaded); // don't leave an orphaned upload behind
+      throw new Error(error.message);
+    }
+    if (uploaded && existing?.photoPath && existing.photoPath !== uploaded) await this.removePhoto(existing.photoPath);
     return {
       id: data.id,
       cafeId: input.cafeId,
@@ -166,24 +185,32 @@ export class SupabaseCommunityRepository implements CommunityRepository {
       body: input.body,
       visitedOn: input.visitedOn,
       photoUrl: this.photoUrl(photoPath),
+      photoPath,
       createdAt: data.created_at,
       isLocal: false,
     };
   }
-  async deleteReview(reviewId: string) {
-    const { error } = await this.db.from('reviews').delete().eq('id', reviewId);
+  async deleteReview(review: Review) {
+    const { error } = await this.db.from('reviews').delete().eq('id', review.id);
     if (error) throw new Error(error.message);
+    await this.removePhoto(review.photoPath);
   }
   async submitReport(report: FacilityReport) {
     const user = await this.requireUser();
     const { error } = await this.db.from('facility_reports').insert({
       user_id: user.id,
-      cafe_id: report.cafeId,
+      place_key: report.cafeId,
       report_type: report.reportType,
       facility: report.facility,
+      reported_available: report.reportedAvailable ?? null,
       reported_value: report.reportedValue,
       details: report.details,
     });
     if (error) throw new Error(error.message);
+  }
+  async flagReview(reviewId: string, reason: string) {
+    const user = await this.requireUser();
+    const { error } = await this.db.from('content_flags').insert({ user_id: user.id, review_id: reviewId, reason });
+    if (error) throw new Error(/duplicate/i.test(error.message) ? 'You already flagged this review.' : error.message);
   }
 }

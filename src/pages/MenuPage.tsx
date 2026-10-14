@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import type { MenuCategory } from '@/types';
-import { useData } from '@/context/DataContext';
+import type { Cafe } from '@/types';
+import { config } from '@/lib/config';
+import { fetchCuratedMenus } from '@/lib/repository/curated';
 import { MENU_CATEGORY_LABELS, neighbourhoodName } from '@/lib/taxonomy';
 import { MenuItemRow } from '@/components/MenuList';
 import { EmptyState, ErrorState, GridSkeleton } from '@/components/States';
@@ -14,7 +16,29 @@ const PAGE = 30;
 
 export default function MenuPage() {
   useDocumentTitle('Menu explorer');
-  const { cafes, loading, error, retry } = useData();
+  // Menus come only from THIRD PLACE's verified records (or the opt-in demo).
+  const [cafes, setCafes] = useState<Cafe[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((a) => a + 1), []);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+    const load = import.meta.env.VITE_DEMO_MODE === 'true'
+      ? import('@/data/demoCafes').then((m) => m.DEMO_CAFES)
+      : config.supabaseConfigured
+        ? fetchCuratedMenus(80)
+        : Promise.resolve([] as Cafe[]);
+    load
+      .then((list) => active && setCafes(list))
+      .catch((e: Error) => active && setError(e.message || 'Could not load menus.'))
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, [attempt]);
   const [q, setQ] = useState('');
   const query = useDebounced(q.trim().toLowerCase(), 200);
   const [cat, setCat] = useState<MenuCategory | 'all'>('all');
@@ -24,7 +48,7 @@ export default function MenuPage() {
   const [limit, setLimit] = useState(PAGE);
 
   const items = useMemo(() => {
-    const all = cafes.flatMap((c) => c.menu.map((m) => ({ item: m, cafe: c })));
+    const all = cafes.flatMap((c) => (c.menu ?? []).map((m) => ({ item: m, cafe: c })));
     return all
       .filter(({ item, cafe }) => {
         if (cat !== 'all' && item.category !== cat) return false;
@@ -43,7 +67,7 @@ export default function MenuPage() {
       <p className="eyebrow">Menu explorer</p>
       <h1 className="mt-2 text-4xl sm:text-5xl">Signature drinks, popular plates</h1>
       <p className="mt-3 max-w-2xl text-mocha">
-        Browse menus across every listed place. “Bestseller” appears only when the café provided it or reliable popularity records exist, and we show the source.
+        Browse menus that cafés have provided or our team has verified. “Bestseller” appears only when the café provided it or reliable popularity records exist, and we show the source.
       </p>
 
       <div className="mt-6 flex flex-wrap items-center gap-2">
@@ -87,7 +111,17 @@ export default function MenuPage() {
         ) : loading ? (
           <GridSkeleton count={3} />
         ) : items.length === 0 ? (
+          cafes.length === 0 ? (
+          <EmptyState title="No verified menus yet">
+            Menus and prices appear here only when a café provides them or our team verifies them. Public map data doesn’t include menus, and we don’t guess.{' '}
+            <Link to="/explore" className="underline">
+              Explore places
+            </Link>{' '}
+            instead, or report a menu from any café page.
+          </EmptyState>
+        ) : (
           <EmptyState title="No menu items match">Try another category or remove the price limit.</EmptyState>
+        )
         ) : (
           <>
             <p className="mb-2 text-sm text-mocha">{items.length} item{items.length === 1 ? '' : 's'}</p>

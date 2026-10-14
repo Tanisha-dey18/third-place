@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom';
 import { VerificationBadge } from '@/components/VerificationBadge';
 import { VERIFICATION_HELP } from '@/lib/taxonomy';
-import { config, isDemoData } from '@/lib/config';
+import { config } from '@/lib/config';
+import { DEFAULT_CITY } from '@/lib/cities';
 import type { VerificationStatus } from '@/types';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
-const STATUSES: VerificationStatus[] = ['cafe_verified', 'visitor_confirmed', 'community_reported', 'unverified', 'unknown'];
+const STATUSES: VerificationStatus[] = ['cafe_verified', 'visitor_confirmed', 'source_provided', 'community_reported', 'unverified', 'unknown'];
 
 export default function AboutPage() {
   useDocumentTitle('About');
@@ -15,10 +16,42 @@ export default function AboutPage() {
       <h1 className="mt-2 text-4xl sm:text-5xl">Not home. Not work. Your place.</h1>
       <div className="mt-6 space-y-5 text-[17px] leading-relaxed text-espresso">
         <p>
-          Sociologists call them “third places”: the cafés, reading rooms and hangouts that aren’t home or work but hold a city together. THIRD PLACE helps you find the right one in
-          Kolkata by mood, purpose, budget, location and facilities, without scrolling through dozens of listings.
+          Sociologists call them “third places”: the cafés, reading rooms and hangouts that aren’t home or work but hold a city together. THIRD PLACE helps you find the right one in{' '}
+          {DEFAULT_CITY.name} by mood, purpose, budget, location and facilities, without scrolling through dozens of listings.
         </p>
-        <p>You describe what you need. We shortlist places that genuinely match, explain why, and tell you plainly what we don’t know.</p>
+        <p>You describe what you need. We shortlist real places that match, explain why, and tell you plainly what we don’t know.</p>
+      </div>
+
+      <h2 id="data" className="mt-12 scroll-mt-28 text-3xl">
+        Where our data comes from
+      </h2>
+      <div className="mt-4 space-y-3 text-[15px] leading-relaxed text-mocha">
+        <p>
+          <strong className="text-espresso">Places</strong> come from{' '}
+          <a href="https://www.openstreetmap.org/" target="_blank" rel="noopener noreferrer" className="underline">
+            OpenStreetMap
+          </a>
+          , the community-built map (© OpenStreetMap contributors, available under the{' '}
+          <a href="https://opendatacommons.org/licenses/odbl/" target="_blank" rel="noopener noreferrer" className="underline">
+            Open Database License
+          </a>
+          ). We use cafés, coffee shops and ice-cream shops, refreshed a few times a day from a shared snapshot. That way your browsing never overloads the volunteer-run servers.
+        </p>
+        <p>
+          OpenStreetMap doesn’t list every café, and many listings have only a name and location. We show exactly what each listing says: name, address, opening hours, cuisine,
+          Wi-Fi, seating, accessibility and contact details, <em>only when supplied</em>. Each fact is labelled “source-provided”, which means not verified by us.
+        </p>
+        <p>
+          <strong className="text-espresso">Menus, prices and verified facilities</strong> appear only when a café provides them or our team verifies them. Public map data
+          doesn’t include menus, and we never estimate prices.
+        </p>
+        <p>
+          <strong className="text-espresso">Reviews and reports</strong> come from signed-in members. Ratings are averages of real reviews. Reports of wrong information stay
+          “community-reported” until a moderator checks them.
+        </p>
+        <p>
+          Spot a mistake in a listing? Every place page links to the source so anyone can fix it, and you can also report it to us.
+        </p>
       </div>
 
       <h2 className="mt-12 text-3xl">How we label information</h2>
@@ -31,31 +64,23 @@ export default function AboutPage() {
         ))}
       </ul>
       <ul className="mt-6 list-disc space-y-2 pl-5 text-[15px] text-mocha">
-        <li>Unknown information is never treated as a yes. “Laptop-friendly” never implies charging points or Wi-Fi.</li>
-        <li>Ratings are averaged from real review records only. We never seed reviews, ratings, visitor counts or “trending” lists.</li>
-        <li>“Bestseller” labels appear only with a recorded source (café-provided data or reliable popularity records).</li>
-        <li>Community reports are shown as community-reported until confirmed.</li>
-        <li>Your location is requested only when you ask for nearby results, and it isn’t stored or sent to any AI provider.</li>
+        <li>Unknown information is never treated as a yes. “Must-have” filters only show places with evidence; “nice-to-have” ranks by evidence.</li>
+        <li>Fetching data again isn’t verification: the “fetched” date and the “verified” date are separate.</li>
+        <li>No visitor counts, trending lists, popularity scores or invented ratings.</li>
+        <li>We don’t infer facilities or ambience from a café’s name, neighbourhood or photos.</li>
+        <li>“Open now” uses listed hours in {DEFAULT_CITY.name} time ({DEFAULT_CITY.timezone}). If hours are missing or in a format we can’t read, we say so.</li>
+        <li>Your location is requested only when you tap “Near me”. It’s rounded to about 1 km before any request leaves your device, and never stored or sent to an AI provider.</li>
       </ul>
 
       <h2 id="demo" className="mt-12 scroll-mt-28 text-3xl">
-        Demo mode
+        This deployment
       </h2>
-      <div className="mt-4 space-y-3 text-[15px] text-mocha">
-        {isDemoData ? (
-          <p>
-            <strong className="text-espresso">This deployment is running on demo data.</strong> Every café you see is fictional, and its name, address, menu, prices, hours and facility statuses are
-            illustrative. Coordinates are placed near real neighbourhood centres so the map and distance sorting can be demonstrated. Photos are generic stock images.
-          </p>
-        ) : (
-          <p>This deployment reads café records from the database. Any record marked “Demo” is fictional sample data.</p>
-        )}
-        <ul className="list-disc space-y-1 pl-5">
-          <li>Accounts: {config.supabaseConfigured ? 'enabled (Supabase Auth)' : 'disabled. Saved places and collections are stored in this browser only.'}</li>
-          <li>Map: {config.map.enabled ? 'enabled' : 'disabled for this deployment'}</li>
-          <li>AI-assisted search: {config.aiSearchEnabled ? 'enabled, with a rule-based fallback' : 'off. Search uses the deterministic rule-based parser.'}</li>
-        </ul>
-      </div>
+      <ul className="mt-4 list-disc space-y-1 pl-5 text-[15px] text-mocha">
+        <li>Place data: {config.demoMode ? 'development demo mode (fictional sample cafés)' : 'live OpenStreetMap snapshot'}</li>
+        <li>Accounts, synced saves and public reviews: {config.supabaseConfigured ? 'enabled' : 'not configured. Saves stay on this device.'}</li>
+        <li>Map tiles: {config.map.enabled ? (config.map.usingDefaultTiles ? 'OpenStreetMap community tiles' : 'configured tile provider') : 'disabled'}</li>
+        <li>AI-assisted search: {config.aiSearchEnabled ? 'enabled, with a rule-based fallback' : 'off; search uses the rule-based parser'}</li>
+      </ul>
 
       <div className="mt-12 flex gap-3">
         <Link to="/find" className="btn-primary">

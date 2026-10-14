@@ -1,6 +1,11 @@
 import type { UserCollection, UserProfile } from '@/types';
 import { supabase } from '@/lib/supabase';
 import { readLocal, uid, writeLocal } from '@/lib/storage';
+import { isValidPlaceKey } from '@/lib/places/keys';
+import { config } from '@/lib/config';
+
+/** Valid key for the current mode: demo keys only exist in demo mode and are never synced to accounts. */
+const usableKey = (k: string) => isValidPlaceKey(k) && (config.demoMode || !k.startsWith('demo:'));
 
 /** Saved places and user collections. */
 export interface LibraryRepository {
@@ -19,16 +24,17 @@ export interface LibraryRepository {
 export class LocalLibraryRepository implements LibraryRepository {
   readonly mode = 'device' as const;
   async listSaved() {
-    return readLocal<string[]>('saved', []);
+    // Older app versions stored UUIDs of fictional demo cafés; drop anything that isn't a place key.
+    return readLocal<string[]>('saved', []).filter(usableKey);
   }
   async setSaved(cafeId: string, saved: boolean) {
-    const cur = new Set(readLocal<string[]>('saved', []));
+    const cur = new Set(readLocal<string[]>('saved', []).filter(usableKey));
     if (saved) cur.add(cafeId);
     else cur.delete(cafeId);
     writeLocal('saved', Array.from(cur));
   }
   private cols() {
-    return readLocal<UserCollection[]>('collections', []);
+    return readLocal<UserCollection[]>('collections', []).map((c) => ({ ...c, cafeIds: (c.cafeIds ?? []).filter(usableKey) }));
   }
   private save(cols: UserCollection[]) {
     writeLocal('collections', cols);
@@ -68,31 +74,31 @@ export class SupabaseLibraryRepository implements LibraryRepository {
     return supabase;
   }
   async listSaved() {
-    const { data, error } = await this.db.from('saved_places').select('cafe_id').order('created_at', { ascending: false });
+    const { data, error } = await this.db.from('saved_places').select('place_key').order('created_at', { ascending: false });
     if (error) throw new Error(error.message);
-    return (data ?? []).map((r: { cafe_id: string }) => r.cafe_id);
+    return (data ?? []).map((r: { place_key: string }) => r.place_key);
   }
   async setSaved(cafeId: string, saved: boolean) {
     const q = saved
-      ? this.db.from('saved_places').upsert({ user_id: this.userId, cafe_id: cafeId }, { onConflict: 'user_id,cafe_id', ignoreDuplicates: true })
-      : this.db.from('saved_places').delete().eq('user_id', this.userId).eq('cafe_id', cafeId);
+      ? this.db.from('saved_places').upsert({ user_id: this.userId, place_key: cafeId }, { onConflict: 'user_id,place_key', ignoreDuplicates: true })
+      : this.db.from('saved_places').delete().eq('user_id', this.userId).eq('place_key', cafeId);
     const { error } = await q;
     if (error) throw new Error(error.message);
   }
   async listCollections() {
     const { data, error } = await this.db
       .from('collections')
-      .select('id, name, description, created_at, updated_at, collection_items(cafe_id, created_at)')
+      .select('id, name, description, created_at, updated_at, collection_items(place_key, created_at)')
       .order('created_at');
     if (error) throw new Error(error.message);
     return (data ?? []).map(
-      (c: { id: string; name: string; description: string | null; created_at: string; updated_at: string; collection_items: { cafe_id: string; created_at: string }[] }) => ({
+      (c: { id: string; name: string; description: string | null; created_at: string; updated_at: string; collection_items: { place_key: string; created_at: string }[] }) => ({
         id: c.id,
         name: c.name,
         description: c.description,
         createdAt: c.created_at,
         updatedAt: c.updated_at,
-        cafeIds: (c.collection_items ?? []).sort((a, b) => a.created_at.localeCompare(b.created_at)).map((i) => i.cafe_id),
+        cafeIds: (c.collection_items ?? []).sort((a, b) => a.created_at.localeCompare(b.created_at)).map((i) => i.place_key),
       }),
     );
   }
@@ -116,11 +122,11 @@ export class SupabaseLibraryRepository implements LibraryRepository {
   async addToCollection(id: string, cafeId: string) {
     const { error } = await this.db
       .from('collection_items')
-      .upsert({ collection_id: id, cafe_id: cafeId }, { onConflict: 'collection_id,cafe_id', ignoreDuplicates: true });
+      .upsert({ collection_id: id, place_key: cafeId }, { onConflict: 'collection_id,place_key', ignoreDuplicates: true });
     if (error) throw new Error(error.message);
   }
   async removeFromCollection(id: string, cafeId: string) {
-    const { error } = await this.db.from('collection_items').delete().eq('collection_id', id).eq('cafe_id', cafeId);
+    const { error } = await this.db.from('collection_items').delete().eq('collection_id', id).eq('place_key', cafeId);
     if (error) throw new Error(error.message);
   }
 }

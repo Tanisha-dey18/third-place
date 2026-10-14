@@ -7,7 +7,7 @@ import { config } from './config';
 // Any failure (not configured, rate-limited, timeout, invalid output)
 // falls back to the deterministic parser, so search always works.
 
-const ENDPOINT = '/.netlify/functions/ai-search';
+const ENDPOINT = '/api/ai-search';
 
 export interface InterpretResult extends ParseResult {
   engine: 'ai' | 'rules';

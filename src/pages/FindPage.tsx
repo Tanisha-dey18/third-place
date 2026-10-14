@@ -16,11 +16,18 @@ import {
   neighbourhoodBySlug,
 } from '@/lib/taxonomy';
 import { DAY_NAMES } from '@/lib/geo';
+import { zonedDayTime } from '@/lib/time';
+import { DEFAULT_CITY } from '@/lib/cities';
+import { areaForPreferences } from '@/lib/places/area';
+import { useAreaPlaces } from '@/hooks/usePlaces';
+import { DataSourceNote } from '@/components/DataSourceNote';
 import { EMPTY_PREFERENCES, recommend, relaxPreferences, type ConstraintKey, type Preferences } from '@/lib/engine';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { Results } from '@/components/Results';
 import { ErrorState, GridSkeleton } from '@/components/States';
+
+type FacilityPref = 'must' | 'nice';
 
 type LocMode = 'anywhere' | 'neighbourhood' | 'current';
 
@@ -30,7 +37,7 @@ interface Form {
   locMode: LocMode;
   area: string;
   atmosphere: Atmosphere[];
-  facilities: FacilityKey[];
+  facilities: Partial<Record<FacilityKey, FacilityPref>>;
   distance: number | null;
   foodType: string;
   seating: 'indoor' | 'outdoor' | '';
@@ -41,7 +48,7 @@ interface Form {
 
 export default function FindPage() {
   useDocumentTitle('Find My Place');
-  const { cafes, loading, error, retry, ratings } = useData();
+  const { ratings } = useData();
   const { profile } = useAuth();
   const [params] = useSearchParams();
   const geo = useGeolocation();
@@ -55,12 +62,12 @@ export default function FindPage() {
     locMode: initialArea ? 'neighbourhood' : 'anywhere',
     area: initialArea || 'park-street',
     atmosphere: [],
-    facilities: [],
+    facilities: {},
     distance: null,
     foodType: '',
     seating: '',
     minRating: '',
-    openDay: String(new Date().getDay()),
+    openDay: String(zonedDayTime(DEFAULT_CITY.timezone).day),
     openTime: '',
   });
   const [submitted, setSubmitted] = useState<Preferences | null>(null);
@@ -68,8 +75,17 @@ export default function FindPage() {
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
   const toggle = <T,>(list: T[], v: T) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
-  const foodTypes = useMemo(() => Array.from(new Set(cafes.flatMap((c) => c.foodTypes))).sort(), [cafes]);
-  const anyRatings = ratings.size > 0;
+  const anyRatings = [...ratings.values()].some((r) => r.count > 0);
+  const facilityList = (f: Form, kind: FacilityPref) => (Object.entries(f.facilities) as [FacilityKey, FacilityPref][]).filter(([, v]) => v === kind).map(([k]) => k);
+  const cycleFacility = (k: FacilityKey) =>
+    setForm((f) => {
+      const cur = f.facilities[k];
+      const next = { ...f.facilities };
+      if (!cur) next[k] = 'nice';
+      else if (cur === 'nice') next[k] = 'must';
+      else delete next[k];
+      return { ...f, facilities: next };
+    });
 
   const toPrefs = (f: Form): Preferences => ({
     ...EMPTY_PREFERENCES,
@@ -82,7 +98,8 @@ export default function FindPage() {
           ? { mode: 'neighbourhood', slug: f.area }
           : { mode: 'anywhere' },
     atmosphere: f.atmosphere,
-    requiredFacilities: f.facilities,
+    requiredFacilities: facilityList(f, 'must'),
+    preferredFacilities: facilityList(f, 'nice'),
     maxDistanceKm: f.locMode === 'anywhere' ? null : f.distance,
     foodType: f.foodType || null,
     seating: f.seating || null,
@@ -96,7 +113,16 @@ export default function FindPage() {
     window.setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
   };
 
-  const result = useMemo(() => (submitted ? recommend(cafes, submitted, { ratings }) : null), [submitted, cafes, ratings]);
+  // Load exactly the area these preferences describe (never the whole city unless asked).
+  const placesState = useAreaPlaces(submitted ? areaForPreferences(submitted) : null);
+  const loading = placesState.status === 'loading';
+  const error = placesState.status === 'error' && placesState.places.length === 0 ? placesState.error : null;
+  const retry = placesState.retry;
+  const foodTypes = useMemo(() => Array.from(new Set(placesState.places.flatMap((c) => c.foodTypes))).sort(), [placesState.places]);
+  const result = useMemo(
+    () => (submitted && placesState.status === 'ready' ? recommend(placesState.places, submitted, { ratings, origin: geo.coords && submitted.location.mode === 'current' ? geo.coords : null }) : null),
+    [submitted, placesState.places, placesState.status, ratings, geo.coords],
+  );
 
   const relax = (key: ConstraintKey) => {
     if (!submitted) return;
@@ -111,7 +137,7 @@ export default function FindPage() {
       seating: key === 'seating' ? '' : f.seating,
       minRating: key === 'minRating' ? '' : f.minRating,
       openTime: key === 'openAt' ? '' : f.openTime,
-      facilities: key.startsWith('facility:') ? f.facilities.filter((x) => `facility:${x}` !== key) : f.facilities,
+      facilities: key.startsWith('facility:') ? { ...f.facilities, [key.slice(9)]: 'nice' } : f.facilities,
     }));
   };
 
@@ -200,14 +226,28 @@ export default function FindPage() {
             </ChipGroup>
           </Step>
 
-          <Step n={5} title="Must-have facilities" hint="Strict: places confirmed without them are excluded">
+          <Step n={5} title="Facilities" hint="Tap once for nice-to-have, twice for must-have">
             <ChipGroup>
-              {REQUIRABLE_FACILITIES.map((f) => (
-                <Chip key={f} on={form.facilities.includes(f)} onClick={() => set('facilities', toggle(form.facilities, f))}>
-                  {FACILITY_LABELS[f]}
-                </Chip>
-              ))}
+              {REQUIRABLE_FACILITIES.map((f) => {
+                const state = form.facilities[f];
+                return (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => cycleFacility(f)}
+                    aria-label={`${FACILITY_LABELS[f]}: ${state === 'must' ? 'must-have' : state === 'nice' ? 'nice-to-have' : 'not needed'}`}
+                    className={`chip min-h-[40px] !py-2 ${state === 'must' ? 'chip-on' : state === 'nice' ? '!border-sage-dark bg-sage-light text-sage-dark' : ''}`}
+                  >
+                    {FACILITY_LABELS[f]}
+                    {state && <span className="text-[11px] opacity-80">· {state === 'must' ? 'must' : 'nice'}</span>}
+                  </button>
+                );
+              })}
             </ChipGroup>
+            <p className="mt-3 text-xs text-latte">
+              Must-haves are strict: a place is shown only when its listing or a verified report says it has the facility. Most listings don’t mention facilities yet, so
+              nice-to-haves usually give better results.
+            </p>
           </Step>
 
           <Step n={6} title="Anything else?" hint="Optional">
@@ -233,7 +273,7 @@ export default function FindPage() {
               </label>
               <label>
                 <span className="label">Minimum rating</span>
-                <select value={form.minRating} onChange={(e) => set('minRating', e.target.value)} className="input !py-2.5" disabled={!anyRatings}>
+                <select value={form.minRating} onChange={(e) => set('minRating', e.target.value)} className="input !py-2.5">
                   <option value="">Any</option>
                   {['3', '3.5', '4', '4.5'].map((r) => (
                     <option key={r} value={r}>
@@ -241,7 +281,7 @@ export default function FindPage() {
                     </option>
                   ))}
                 </select>
-                {!anyRatings && <span className="mt-1 block text-xs text-latte">No places have reviews yet, so this filter is off.</span>}
+                <span className="mt-1 block text-xs text-latte">Only places with real reviews can meet this{anyRatings ? '' : ', and few have any yet'}.</span>
               </label>
               <div>
                 <span className="label">Open at</span>
@@ -255,7 +295,7 @@ export default function FindPage() {
                   </select>
                   <input type="time" value={form.openTime} onChange={(e) => set('openTime', e.target.value)} className="input !py-2.5" aria-label="Time" />
                 </div>
-                <span className="mt-1 block text-xs text-latte">Only places with known hours can be confirmed open.</span>
+                <span className="mt-1 block text-xs text-latte">In {DEFAULT_CITY.name} time. Only places with listed hours can be confirmed open.</span>
               </div>
             </div>
           </Step>
@@ -272,7 +312,8 @@ export default function FindPage() {
                 v={form.locMode === 'anywhere' ? 'Anywhere' : form.locMode === 'current' ? (geo.coords ? 'Near you' : 'Waiting for location') : neighbourhoodBySlug(form.area)?.name ?? ''}
               />
               {form.locMode !== 'anywhere' && form.distance != null && <Row k="Distance" v={`≤ ${form.distance} km`} />}
-              <Row k="Must-haves" v={form.facilities.length ? form.facilities.map((f) => FACILITY_LABELS[f]).join(', ') : 'None'} />
+              <Row k="Must-haves" v={facilityList(form, 'must').map((f) => FACILITY_LABELS[f]).join(', ') || 'None'} />
+              <Row k="Nice-to-haves" v={facilityList(form, 'nice').map((f) => FACILITY_LABELS[f]).join(', ') || 'None'} />
             </dl>
             <button onClick={submit} className="btn-primary mt-5 w-full !py-3" disabled={loading || !!error}>
               <Sparkles size={16} aria-hidden /> {submitted ? 'Update shortlist' : 'Find My Place'}
@@ -295,6 +336,7 @@ export default function FindPage() {
               </button>
             </div>
             <Results result={result} onRelax={relax} limit={limit} onShowMore={() => setLimit((l) => l + 10)} />
+            <DataSourceNote meta={placesState.meta} enrichmentError={placesState.enrichmentError} className="mt-8" />
           </>
         ) : null}
       </div>

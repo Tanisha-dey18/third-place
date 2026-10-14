@@ -86,7 +86,7 @@ export default function ProfilePage() {
           </div>
         ) : (
           <p className="text-mocha">
-            <strong className="text-espresso">Demo mode:</strong> accounts are disabled because Supabase isn’t configured. Preferences below are stored in this browser only and
+            <strong className="text-espresso">Accounts not configured:</strong> this deployment has no Supabase project. Preferences below are stored in this browser only and
             power “Recommended for you” on the home page.
           </p>
         )}

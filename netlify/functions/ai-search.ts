@@ -1,7 +1,7 @@
 // ───────────────────────────────────────────────────────────────
 // THIRD PLACE · AI search function (Netlify Functions, Node 20)
 //
-// POST /.netlify/functions/ai-search
+// POST /api/ai-search
 //   { action: "parse",   query }                 → { prefs, provider }
 //   { action: "explain", query, results: [...] } → { explanations: { [id]: text } }
 //
@@ -15,18 +15,19 @@
 // • Input size limits, origin allow-list and a per-IP rate limit.
 // The browser falls back to the rule-based parser on any error.
 // ───────────────────────────────────────────────────────────────
+import type { Config } from '@netlify/functions';
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import * as z from 'zod/v4';
 import { sanitizePreferences } from '../../src/lib/engine/sanitize';
 import { ATMOSPHERE_LABELS, FACILITY_LABELS, NEIGHBOURHOODS, OCCASION_LABELS } from '../../src/lib/taxonomy';
+import { clientIp, corsHeaders, createMemoryRateLimiter, errorBody, json, NO_STORE, serverEnv } from '../../server/http';
 
 type Provider = 'anthropic' | 'gemini' | 'groq';
 
 const MAX_BODY = 8_000;
-const RATE_LIMIT = 20; // requests per window per IP (best effort, per function instance)
-const WINDOW_MS = 60_000;
-const hits = new Map<string, number[]>();
+// Safety net only; the shared limit is Netlify's platform rate limiting (see config below).
+const limiter = createMemoryRateLimiter(20, 60_000);
 
 const DEFAULT_MODELS: Record<Provider, string> = {
   anthropic: 'claude-opus-5-5',
@@ -47,6 +48,7 @@ const Extraction = z.object({
   region: z.enum(['central', 'south', 'east', 'north']).nullable(),
   atmosphere: z.array(z.enum(atmospheres)),
   requiredFacilities: z.array(z.enum(facilities)),
+  preferredFacilities: z.array(z.enum(facilities)),
   maxDistanceKm: z.number().nullable(),
   foodType: z.string().nullable(),
   seating: z.enum(['indoor', 'outdoor']).nullable(),
@@ -87,7 +89,8 @@ Use ONLY the allowed enum values. Use null or [] when the request doesn't say so
 - occasion: one of ${occasions.join(', ')}.
 - maxBudgetInr: per-person ceiling in rupees if stated ("under 400", "cheap" ≈ 300), else null.
 - neighbourhood: one of ${neighbourhoods.join(', ')} if a specific area is named; region (central/south/east/north) for "South Kolkata" etc.
-- requiredFacilities: only facilities the person explicitly needs (${facilities.join(', ')}). "Laptop-friendly" alone is NOT wifi or charging; use atmosphere work_friendly. Charging a laptop → charging. Staying 2+ hours → long_stay.
+- requiredFacilities: only facilities the person says they NEED (${facilities.join(', ')}). "Laptop-friendly" alone is NOT wifi or charging; use atmosphere work_friendly. Needing to charge a laptop → charging.
+- preferredFacilities: facilities mentioned as nice-to-have or without stating a need. Staying 2+ hours → long_stay here.
 - atmosphere: from ${atmospheres.join(', ')}.
 - openAtTime: "HH:MM" 24h if they need it open at a time.
 - keywords: up to 5 notable words (dishes, styles) not covered above.
@@ -100,7 +103,7 @@ Return an explanation for each provided id.`;
 
 // ── Provider calls ──────────────────────────────────────────────
 async function callAnthropic<T>(model: string, system: string, user: string, schema: z.ZodType<T>): Promise<T> {
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 15_000, maxRetries: 1 });
+  const client = new Anthropic({ apiKey: serverEnv().ANTHROPIC_API_KEY, timeout: 15_000, maxRetries: 1 });
   const res = await client.messages.parse({
     model,
     max_tokens: 4000,
@@ -115,7 +118,7 @@ async function callAnthropic<T>(model: string, system: string, user: string, sch
 async function callGemini<T>(model: string, system: string, user: string, schema: z.ZodType<T>): Promise<T> {
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY ?? '' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': serverEnv().GEMINI_API_KEY ?? '' },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: `${system}\nRespond with JSON matching this schema: ${JSON.stringify(z.toJSONSchema(schema))}` }] },
       contents: [{ role: 'user', parts: [{ text: user }] }],
@@ -132,7 +135,7 @@ async function callGemini<T>(model: string, system: string, user: string, schema
 async function callGroq<T>(model: string, system: string, user: string, schema: z.ZodType<T>): Promise<T> {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY ?? ''}` },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${serverEnv().GROQ_API_KEY ?? ''}` },
     body: JSON.stringify({
       model,
       temperature: 0,
@@ -150,14 +153,15 @@ async function callGroq<T>(model: string, system: string, user: string, schema: 
 }
 
 function providerConfig(): { provider: Provider; model: string } | null {
-  const p = (process.env.AI_PROVIDER ?? '').toLowerCase() as Provider;
+  const env = serverEnv();
+  const p = (env.AI_PROVIDER ?? '').toLowerCase() as Provider;
   const keys: Record<Provider, string | undefined> = {
-    anthropic: process.env.ANTHROPIC_API_KEY,
-    gemini: process.env.GEMINI_API_KEY,
-    groq: process.env.GROQ_API_KEY,
+    anthropic: env.ANTHROPIC_API_KEY,
+    gemini: env.GEMINI_API_KEY,
+    groq: env.GROQ_API_KEY,
   };
   if (!(p in keys) || !keys[p]) return null;
-  return { provider: p, model: process.env.AI_MODEL || DEFAULT_MODELS[p] };
+  return { provider: p, model: env.AI_MODEL || DEFAULT_MODELS[p] };
 }
 
 function call<T>(cfg: { provider: Provider; model: string }, system: string, user: string, schema: z.ZodType<T>): Promise<T> {
@@ -173,6 +177,7 @@ function toPreferences(x: ExtractionT) {
     location: x.neighbourhood ? { mode: 'neighbourhood', slug: x.neighbourhood } : x.region ? { mode: 'region', region: x.region } : { mode: 'anywhere' },
     atmosphere: x.atmosphere,
     requiredFacilities: x.requiredFacilities,
+    preferredFacilities: x.preferredFacilities,
     maxDistanceKm: x.maxDistanceKm,
     foodType: x.foodType,
     seating: x.seating,
@@ -183,64 +188,39 @@ function toPreferences(x: ExtractionT) {
   });
 }
 
-// ── HTTP plumbing ───────────────────────────────────────────────
-function json(status: number, body: unknown, origin: string | null) {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
-  if (origin) {
-    headers['Access-Control-Allow-Origin'] = origin;
-    headers['Vary'] = 'Origin';
-  }
-  return new Response(JSON.stringify(body), { status, headers });
-}
-
-function allowedOrigin(req: Request): string | null | false {
-  const origin = req.headers.get('origin');
-  const list = (process.env.AI_ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (!origin) return null; // same-origin requests from the site itself may omit it
-  if (list.length === 0) return new URL(req.url).origin === origin ? origin : false;
-  return list.includes(origin) ? origin : false;
-}
-
-function rateLimited(ip: string): boolean {
-  const now = Date.now();
-  const recent = (hits.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
-  recent.push(now);
-  hits.set(ip, recent);
-  if (hits.size > 5000) hits.clear();
-  return recent.length > RATE_LIMIT;
-}
+// ── HTTP ─────────────────────────────────────────────────────────
 
 export default async function handler(req: Request): Promise<Response> {
-  const origin = allowedOrigin(req);
-  if (origin === false) return json(403, { error: 'Origin not allowed' }, null);
+  const cors = corsHeaders(req, serverEnv());
+  if (cors === false) return json(403, errorBody('origin_not_allowed', 'Origin not allowed.'), NO_STORE);
+  const h = { ...cors, ...NO_STORE };
   if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: { 'Access-Control-Allow-Origin': origin ?? '', 'Access-Control-Allow-Methods': 'POST', 'Access-Control-Allow-Headers': 'Content-Type' },
-    });
+    return new Response(null, { status: 204, headers: { ...cors, 'Access-Control-Allow-Methods': 'POST', 'Access-Control-Allow-Headers': 'Content-Type' } });
   }
-  if (req.method !== 'POST') return json(405, { error: 'Method not allowed' }, origin);
+  if (req.method !== 'POST') return json(405, errorBody('method_not_allowed', 'Use POST.'), { ...h, Allow: 'POST' });
 
   const cfg = providerConfig();
-  if (!cfg) return json(503, { error: 'AI search is not configured' }, origin);
+  if (!cfg) return json(503, errorBody('not_configured', 'AI search is not configured.'), h);
 
-  const ip = req.headers.get('x-nf-client-connection-ip') ?? req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
-  if (rateLimited(ip)) return json(429, { error: 'Too many requests, please slow down' }, origin);
+  const wait = limiter.check(clientIp(req));
+  if (wait) return json(429, errorBody('rate_limited', 'Too many requests, please slow down.', true), { ...h, 'Retry-After': String(wait) });
 
+  const declared = Number(req.headers.get('content-length') ?? '0');
+  if (declared > MAX_BODY) return json(413, errorBody('too_large', 'Request too large.'), h);
   const raw = await req.text();
-  if (raw.length > MAX_BODY) return json(413, { error: 'Request too large' }, origin);
+  if (raw.length > MAX_BODY) return json(413, errorBody('too_large', 'Request too large.'), h);
   let body: unknown;
   try {
     body = JSON.parse(raw);
   } catch {
-    return json(400, { error: 'Invalid JSON' }, origin);
+    return json(400, errorBody('invalid_json', 'Invalid JSON.'), h);
   }
 
   try {
     const parse = ParseBody.safeParse(body);
     if (parse.success) {
       const extraction = await call(cfg, PARSE_SYSTEM, parse.data.query, Extraction);
-      return json(200, { prefs: toPreferences(extraction), provider: cfg.provider }, origin);
+      return json(200, { prefs: toPreferences(extraction), provider: cfg.provider }, h);
     }
     const explain = ExplainBody.safeParse(body);
     if (explain.success) {
@@ -258,12 +238,18 @@ export default async function handler(req: Request): Promise<Response> {
       for (const e of out.explanations) {
         if (allowed.has(e.id) && e.text.length <= 400) explanations[e.id] = e.text.trim();
       }
-      return json(200, { explanations }, origin);
+      return json(200, { explanations }, h);
     }
-    return json(400, { error: 'Invalid request' }, origin);
+    return json(400, errorBody('invalid_request', 'Invalid request.'), h);
   } catch (err) {
     // Log server-side without echoing provider details to the client.
     console.error('[ai-search]', err instanceof Error ? err.message : err);
-    return json(502, { error: 'AI provider unavailable' }, origin);
+    return json(502, errorBody('provider_unavailable', 'AI provider unavailable.', true), h);
   }
 }
+
+export const config: Config = {
+  path: '/api/ai-search',
+  method: ['POST', 'OPTIONS'],
+  rateLimit: { windowLimit: 20, windowSize: 60, aggregateBy: ['ip', 'domain'] },
+};

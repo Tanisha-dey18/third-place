@@ -1,5 +1,7 @@
 // ───────────────────────────────────────────────────────────────
-// DEMO DATA — FICTIONAL.
+// DEMO DATA — FICTIONAL. DEVELOPMENT ONLY.
+// Loaded (via dynamic import) only when VITE_DEMO_MODE=true. The build
+// check (scripts/check-env.ts) refuses production deploys with demo mode on.
 // Every café below is invented for demonstration purposes. Names,
 // addresses, menus, prices, hours and facility statuses are
 // illustrative and do NOT describe any real business. Coordinates
@@ -90,8 +92,10 @@ interface Base {
 }
 
 const build = (b: Base): Cafe => ({
-  id: id(b.n),
-  slug: b.slug,
+  id: `demo:${b.slug}`,
+  slug: `demo-${b.slug}`,
+  city: 'kolkata',
+  category: 'cafe',
   name: b.name,
   isDemo: true,
   tagline: b.tagline,
@@ -104,6 +108,9 @@ const build = (b: Base): Cafe => ({
   priceMax: b.price?.[1] ?? null,
   priceStatus: b.priceStatus,
   hours: { value: b.hours, status: b.hours ? b.hoursStatus : 'unknown', lastVerified: b.hours ? b.lastVerified : null, source: DEMO_SOURCE },
+  rawOpeningHours: null,
+  hoursParse: b.hours ? 'parsed' : 'missing',
+  hoursNote: null,
   phone: null,
   website: null,
   instagram: null,
@@ -117,11 +124,13 @@ const build = (b: Base): Cafe => ({
   photos: b.photos,
   tags: b.tags,
   accessibilityNote: b.accessibilityNote ?? null,
+  extras: [],
   dataSource: DEMO_SOURCE,
+  source: { provider: 'demo', externalId: b.slug, url: null, editUrl: null, fetchedAt: null, attribution: 'Fictional demo data', license: null },
   verificationStatus: b.verificationStatus,
   lastVerified: b.lastVerified,
   createdAt: b.createdAt,
-  menu: b.menu,
+  menu: b.menu.map((m) => ({ ...m, cafeId: `demo:${b.slug}` })),
 });
 
 const ADDR = (s: string) => `${s} (illustrative demo address)`;

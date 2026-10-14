@@ -4,6 +4,7 @@ import { LocalLibraryRepository, SupabaseLibraryRepository, type LibraryReposito
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { removeLocal } from '@/lib/storage';
+import { config } from '@/lib/config';
 
 interface LibraryState {
   /** 'account' = synced to the signed-in user; 'device' = this browser only. */
@@ -25,7 +26,8 @@ const LibraryContext = createContext<LibraryState | null>(null);
 export function LibraryProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const toast = useToast();
-  const repo = useMemo<LibraryRepository>(() => (user ? new SupabaseLibraryRepository(user.id) : new LocalLibraryRepository()), [user]);
+  // Demo mode never writes fictional place keys into a real account.
+  const repo = useMemo<LibraryRepository>(() => (user && !config.demoMode ? new SupabaseLibraryRepository(user.id) : new LocalLibraryRepository()), [user]);
   const [savedIds, setSavedIds] = useState<string[]>([]);
   const [collections, setCollections] = useState<UserCollection[]>([]);
   const [ready, setReady] = useState(false);

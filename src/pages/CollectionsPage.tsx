@@ -2,10 +2,9 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, FolderOpen, Pencil, Plus, Trash2, X } from 'lucide-react';
 import type { Cafe } from '@/types';
-import { useData } from '@/context/DataContext';
+import { usePlacesByKeys } from '@/hooks/usePlaces';
 import { useLibrary } from '@/context/LibraryContext';
 import { useAuth } from '@/context/AuthContext';
-import { isOpenAt } from '@/lib/geo';
 import { collectionNameSchema } from '@/lib/validation';
 import { CafeCard } from '@/components/CafeCard';
 import { SmartImage } from '@/components/SmartImage';
@@ -14,42 +13,30 @@ import { Modal } from '@/components/Modal';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 interface Curated {
-  slug: string;
   title: string;
   rule: string;
-  pick(c: Cafe): boolean;
+  to: string;
 }
 
-// Curated lists are computed from records with explicit, visible rules —
-// never hand-picked "trending" lists.
+// Rule-based lists open Explore with the matching filters, so they always
+// reflect live data for the area you choose. Never hand-picked "trending" lists.
 const CURATED: Curated[] = [
-  {
-    slug: 'laptop-safe',
-    title: 'Laptop-safe',
-    rule: 'Wi-Fi and charging both confirmed by the café or a recent visitor.',
-    pick: (c) =>
-      ['wifi', 'charging'].every((k) => {
-        const f = c.facilities.find((x) => x.key === k);
-        return f?.available === true && (f.status === 'cafe_verified' || f.status === 'visitor_confirmed');
-      }),
-  },
-  { slug: 'under-150', title: 'Under ₹150 a head', rule: 'Lowest listed spend per person is ₹150 or less.', pick: (c) => c.priceMin != null && c.priceMin <= 150 },
-  { slug: 'open-air', title: 'Gardens, terraces & open air', rule: 'Outdoor seating confirmed.', pick: (c) => c.seating.outdoor === true },
-  {
-    slug: 'late',
-    title: 'Open past 11 pm',
-    rule: 'Known opening hours include 11 pm on at least one day.',
-    pick: (c) => [0, 1, 2, 3, 4, 5, 6].some((d) => isOpenAt(c.hours.value, d, '23:00') === true),
-  },
+  { title: 'Wi-Fi listed', rule: 'Places whose listing or a verified report says they have Wi-Fi.', to: '/explore?fac=wifi' },
+  { title: 'Open now', rule: 'Listed opening hours say they’re open right now (Kolkata time).', to: '/explore?open=1' },
+  { title: 'Outdoor seating', rule: 'Outdoor seating listed at the source or verified.', to: '/explore?fac=outdoor_seating' },
+  { title: 'Ice cream & desserts', rule: 'Places listed as ice-cream shops.', to: '/explore?cat=ice_cream' },
+  { title: 'Air-conditioned', rule: 'Air conditioning listed or verified.', to: '/explore?fac=ac' },
+  { title: 'Step-free access', rule: 'Wheelchair access listed or verified.', to: '/explore?fac=wheelchair_access' },
 ];
 
 export default function CollectionsPage() {
   useDocumentTitle('Collections');
-  const { cafes, byId } = useData();
   const { collections, createCollection, mode, ready } = useLibrary();
   const { configured, user } = useAuth();
   const [creating, setCreating] = useState(false);
-  const curated = useMemo(() => CURATED.map((c) => ({ ...c, cafes: cafes.filter(c.pick) })), [cafes]);
+  const coverKeys = useMemo(() => Array.from(new Set(collections.flatMap((c) => c.cafeIds.slice(0, 3)))).slice(0, 50), [collections]);
+  const covers = usePlacesByKeys(coverKeys);
+  const byId = (id: string) => covers.places.find((p) => p.id === id);
 
   return (
     <div className="page pt-10">
@@ -100,22 +87,13 @@ export default function CollectionsPage() {
 
       <section className="mt-16">
         <h2 className="text-2xl">From THIRD PLACE</h2>
-        <p className="mb-5 text-sm text-mocha">Built automatically from our records using the rule shown on each list.</p>
-        <div className="space-y-10">
-          {curated.map((c) => (
-            <div key={c.slug}>
+        <p className="mb-5 text-sm text-mocha">Built from live data using the rule shown on each list. Pick an area on the next screen.</p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {CURATED.map((c) => (
+            <Link key={c.title} to={c.to} className="card block p-5 transition-shadow hover:shadow-lift">
               <h3 className="text-xl">{c.title}</h3>
-              <p className="mb-3 text-xs text-latte">Rule: {c.rule}</p>
-              {c.cafes.length ? (
-                <div className="scroll-row">
-                  {c.cafes.map((cafe) => (
-                    <CafeCard key={cafe.id} cafe={cafe} variant="rail" />
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-mocha">No places meet this rule yet.</p>
-              )}
-            </div>
+              <p className="mt-1 text-xs text-latte">Rule: {c.rule}</p>
+            </Link>
           ))}
         </div>
       </section>
@@ -138,8 +116,9 @@ export function CollectionDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const { collections, renameCollection, deleteCollection, removeFromCollection, ready } = useLibrary();
-  const { byId, loading } = useData();
   const col = collections.find((c) => c.id === id);
+  const itemsState = usePlacesByKeys(col?.cafeIds ?? []);
+  const loading = itemsState.status === 'loading' && itemsState.places.length === 0;
   const [renaming, setRenaming] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   useDocumentTitle(col?.name ?? 'Collection');
@@ -154,8 +133,8 @@ export function CollectionDetailPage() {
       </div>
     );
   }
-  const items = col.cafeIds.map((cid) => byId(cid)).filter(Boolean) as Cafe[];
-  const missing = col.cafeIds.length - items.length;
+  const items = col.cafeIds.map((cid) => itemsState.places.find((p) => p.id === cid)).filter(Boolean) as Cafe[];
+  const missing = itemsState.status === 'ready' ? col.cafeIds.length - items.length : 0;
 
   return (
     <div className="page pt-8">

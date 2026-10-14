@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bookmark, FolderPlus } from 'lucide-react';
 import type { Cafe } from '@/types';
-import { useData } from '@/context/DataContext';
+import { usePlacesByKeys } from '@/hooks/usePlaces';
 import { useLibrary } from '@/context/LibraryContext';
 import { useAuth } from '@/context/AuthContext';
 import { CafeCard } from '@/components/CafeCard';
-import { EmptyState, GridSkeleton } from '@/components/States';
+import { EmptyState, ErrorState, GridSkeleton } from '@/components/States';
 import { AddToCollectionDialog } from '@/components/AddToCollectionDialog';
 import { LazyMap } from '@/components/LazyMap';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
@@ -14,11 +14,14 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 export default function SavedPage() {
   useDocumentTitle('Saved');
   const { savedIds, ready, mode, collections } = useLibrary();
-  const { byId, loading } = useData();
+
   const { configured, user } = useAuth();
   const [target, setTarget] = useState<Cafe | null>(null);
   const [showMap, setShowMap] = useState(false);
-  const saved = savedIds.map((id) => byId(id)).filter(Boolean) as Cafe[];
+  const state = usePlacesByKeys(savedIds);
+  const loading = state.status === 'loading' && state.places.length === 0;
+  const saved = savedIds.map((id) => state.places.find((p) => p.id === id)).filter(Boolean) as Cafe[];
+  const missing = state.status === 'ready' ? savedIds.length - saved.length : 0;
 
   return (
     <div className="page pt-10">
@@ -41,11 +44,13 @@ export default function SavedPage() {
           ? 'Saved to your account and available on any device.'
           : configured && !user
             ? 'Saved on this device only. Log in and they’ll move to your account automatically.'
-            : 'Saved in this browser only. Accounts are off in demo mode, so nothing is synced.'}
+            : 'Saved in this browser only. Accounts aren’t configured on this deployment, so nothing is synced.'}
       </p>
 
       <div className="mt-8">
-        {!ready || loading ? (
+        {state.status === 'error' && saved.length === 0 && savedIds.length > 0 ? (
+          <ErrorState message={state.error ?? 'Could not load your saved places.'} onRetry={state.retryable ? state.retry : undefined} />
+        ) : !ready || loading ? (
           <GridSkeleton count={3} />
         ) : saved.length === 0 ? (
           <EmptyState
@@ -61,6 +66,7 @@ export default function SavedPage() {
           </EmptyState>
         ) : (
           <>
+            {missing > 0 && <p className="mb-4 text-sm text-latte">{missing} saved place{missing === 1 ? ' is' : 's are'} no longer listed at the source and can’t be shown.</p>}
             {showMap && <LazyMap cafes={saved} className="mb-8 h-[360px]" />}
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {saved.map((c) => (

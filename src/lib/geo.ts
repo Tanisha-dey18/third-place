@@ -24,11 +24,12 @@ export function formatDistance(km: number | null): string | null {
 
 /** Google Maps directions link. Uses coordinates when known, else the address text. */
 export function directionsUrl(cafe: Pick<Cafe, 'lat' | 'lng' | 'name' | 'address'>): string | null {
+  // Only real coordinates or a real address — never a guessed location.
   if (cafe.lat != null && cafe.lng != null) {
     return `https://www.google.com/maps/dir/?api=1&destination=${cafe.lat},${cafe.lng}`;
   }
   if (cafe.address) {
-    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${cafe.address}, Kolkata`)}`;
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cafe.address)}`;
   }
   return null;
 }
@@ -40,10 +41,13 @@ const toMinutes = (hhmm: string) => {
 
 /**
  * Is the place open at a given day/time according to its schedule?
- * Returns null when the schedule is unknown. Handles closing past midnight.
+ * Returns null when the schedule is unknown (null). An empty schedule means
+ * "closed every day". Handles closing past midnight and "24:00".
+ * `day`/`time` must already be in the city's timezone (see time.ts).
  */
 export function isOpenAt(schedule: OpeningHoursDay[] | null, day: number, time: string): boolean | null {
-  if (!schedule || schedule.length === 0) return null;
+  if (!schedule) return null;
+  if (schedule.length === 0) return false;
   const t = toMinutes(time);
   for (const slot of schedule) {
     const open = toMinutes(slot.open);
@@ -60,6 +64,7 @@ export function isOpenAt(schedule: OpeningHoursDay[] | null, day: number, time: 
 export const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export function formatTime(hhmm: string): string {
+  if (hhmm === '24:00') return 'midnight';
   const [h, m] = hhmm.split(':').map(Number);
   const suffix = h >= 12 && h < 24 ? 'pm' : 'am';
   const h12 = h % 12 === 0 ? 12 : h % 12;

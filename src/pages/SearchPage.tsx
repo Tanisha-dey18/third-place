@@ -3,6 +3,10 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Bot, LocateFixed, Search, SlidersHorizontal, Wand2 } from 'lucide-react';
 import type { BudgetBand } from '@/types';
 import { useData } from '@/context/DataContext';
+import { areaForPreferences, areaLabel } from '@/lib/places/area';
+import { useAreaPlaces, useNameSearch } from '@/hooks/usePlaces';
+import { DataSourceNote } from '@/components/DataSourceNote';
+import { CafeCard } from '@/components/CafeCard';
 import { budgetOption, neighbourhoodBySlug } from '@/lib/taxonomy';
 import { recommend, relaxPreferences, type ConstraintKey, type Preferences } from '@/lib/engine';
 import { explainMatches, interpretQuery, type InterpretResult } from '@/lib/ai';
@@ -25,7 +29,7 @@ export default function SearchPage() {
   useDocumentTitle('Search');
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
-  const { cafes, loading, error, retry, ratings } = useData();
+  const { ratings } = useData();
   const geo = useGeolocation();
   const [input, setInput] = useState(q);
   const [interp, setInterp] = useState<InterpretResult | null>(null);
@@ -65,7 +69,20 @@ export default function SearchPage() {
     };
   }, [q, params]);
 
-  const result = useMemo(() => (prefs ? recommend(cafes, prefs, { ratings }) : null), [prefs, cafes, ratings]);
+  // Only the area the request is about is loaded (never the whole city unless asked).
+  const area = prefs ? areaForPreferences(prefs) : null;
+  const placesState = useAreaPlaces(area);
+  // If the query names a place ("Cafe Coffee Day"), also look it up by name across the city.
+  const nameQuery = interp && q.length <= 60 && interp.understood.filter((u) => u.kind !== 'keyword').length === 0 ? q : '';
+  const nameState = useNameSearch(nameQuery);
+  const loading = placesState.status === 'loading' && placesState.places.length === 0;
+  const error = placesState.status === 'error' && placesState.places.length === 0 ? placesState.error : null;
+  const retry = placesState.retry;
+  const origin = geo.coords && prefs?.location.mode === 'current' ? geo.coords : null;
+  const result = useMemo(
+    () => (prefs && placesState.status === 'ready' ? recommend(placesState.places, prefs, { ratings, origin }) : null),
+    [prefs, placesState.places, placesState.status, ratings, origin],
+  );
 
   // Optional AI explanations — only for records the engine already chose.
   useEffect(() => {
@@ -188,7 +205,21 @@ export default function SearchPage() {
             ) : loading || busy || !result ? (
               <GridSkeleton count={3} />
             ) : (
-              <Results result={result} onRelax={relax} aiNotes={aiNotes} limit={limit} onShowMore={() => setLimit((l) => l + 10)} />
+              <>
+                {nameState.places.length > 0 && (
+                  <section className="mb-10">
+                    <h2 className="mb-3 text-2xl">Places named like “{nameQuery}”</h2>
+                    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                      {nameState.places.slice(0, 6).map((c) => (
+                        <CafeCard key={c.id} cafe={c} />
+                      ))}
+                    </div>
+                  </section>
+                )}
+                {area && <p className="mb-4 text-sm text-mocha">Searching {areaLabel(area)}.</p>}
+                <Results result={result} onRelax={relax} aiNotes={aiNotes} limit={limit} onShowMore={() => setLimit((l) => l + 10)} />
+                <DataSourceNote meta={placesState.meta} enrichmentError={placesState.enrichmentError} className="mt-8" />
+              </>
             )}
           </div>
         </div>

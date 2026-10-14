@@ -1,0 +1,190 @@
+{
+ "version": 0.6,
+ "generator": "Overpass API 0.7.62.11 87bfad18",
+ "osm3s": {
+  "timestamp_osm_base": "2026-10-14T16:59:26Z",
+  "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+ },
+ "elements": [
+  {
+   "type": "node",
+   "id": 10088202518,
+   "lat": 22.5819168,
+   "lon": 88.3908195,
+   "tags": {
+    "addr:housenumber": "p14",
+    "addr:postcode": "700054",
+    "addr:street": "CIT Road",
+    "amenity": "ice_cream",
+    "name": "Pabrai's Fresh & Naturelle Ice Cream, kankurgachi",
+    "opening_hours": "Mo-Th 10:00-01:00; Fr-Su 10:00-02:00",
+    "website": "https://www.pabrais.com/"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4370643951,
+   "lat": 22.5014712,
+   "lon": 88.3517381,
+   "tags": {
+    "amenity": "cafe",
+    "internet_access": "wlan",
+    "name": "Crossroad Cafe",
+    "name:en": "Crossroad Cafe"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2560435257,
+   "lat": 22.5164608,
+   "lon": 88.3669256,
+   "tags": {
+    "addr:housenumber": "102",
+    "addr:street": "Ballygunge Gardens",
+    "amenity": "cafe",
+    "brand": "Cafe Coffee Day",
+    "brand:wikidata": "Q5017235",
+    "check_date": "2023-12-16",
+    "cuisine": "coffee_shop",
+    "internet_access": "no",
+    "name": "Cafe Coffee Day",
+    "payment:cash": "yes",
+    "payment:mastercard": "yes",
+    "payment:visa": "yes",
+    "takeaway": "yes"
+   }
+  },
+  {
+   "type": "way",
+   "id": 357740607,
+   "center": {
+    "lat": 22.6492854,
+    "lon": 88.3688236
+   },
+   "tags": {
+    "amenity": "cafe",
+    "building": "yes",
+    "cuisine": "coffee_shop"
+   }
+  },
+  {
+   "type": "node",
+   "id": 8266875817,
+   "lat": 22.6016849,
+   "lon": 88.3736658,
+   "tags": {
+    "amenity": "cafe"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2560450679,
+   "lat": 22.5164344,
+   "lon": 88.3656505,
+   "tags": {
+    "amenity": "cafe",
+    "check_date": "2023-12-16",
+    "cuisine": "baked",
+    "internet_access": "no",
+    "name": "Just Baked",
+    "outdoor_seating": "no",
+    "payment:cash": "yes",
+    "payment:mastercard": "yes",
+    "payment:visa": "yes",
+    "smoking": "no",
+    "wheelchair": "no"
+   }
+  },
+  {
+   "type": "node",
+   "id": 6138458287,
+   "lat": 22.5510748,
+   "lon": 88.3543936,
+   "tags": {
+    "air_conditioning": "no",
+    "amenity": "cafe",
+    "indoor_seating": "no",
+    "level": "0",
+    "name": "Tea Junction",
+    "outdoor_seating": "yes",
+    "wheelchair": "no"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1579174171,
+   "lat": 22.442406,
+   "lon": 88.4300344,
+   "tags": {
+    "addr:housename": "Sonarpur Coffee House",
+    "addr:postcode": "700150",
+    "addr:street": "Sonarpur Station Road",
+    "amenity": "cafe",
+    "cuisine": "indian",
+    "name": "Sonarpur Coffee House",
+    "wifi": "no"
+   }
+  },
+  {
+   "type": "node",
+   "id": 5598656721,
+   "lat": 22.5522106,
+   "lon": 88.3525571,
+   "tags": {
+    "amenity": "ice_cream",
+    "brand": "Baskin-Robbins",
+    "brand:wikidata": "Q584601",
+    "contact:phone": "+91 93118 13131",
+    "cuisine": "ice_cream",
+    "delivery": "yes",
+    "name": "Baskin-Robbins",
+    "wheelchair": "no"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4364237746,
+   "lat": 22.4752627,
+   "lon": 88.4009281,
+   "tags": {
+    "amenity": "cafe",
+    "brand": "Cafe Coffee Day",
+    "brand:wikidata": "Q5017235",
+    "cuisine": "coffee_shop",
+    "name": "Cafe Coffee Day",
+    "takeaway": "yes",
+    "website": "https://www.cafecoffeeday.com/"
+   }
+  },
+  {
+   "type": "node",
+   "id": 6135363744,
+   "lat": 22.552898,
+   "lon": 88.3543572,
+   "tags": {
+    "addr:postcode": "700016",
+    "amenity": "cafe",
+    "check_date": "2023-10-28",
+    "delivery": "yes",
+    "name": "Café Harmony",
+    "opening_hours": "16:00-23:30",
+    "phone": "09038024943",
+    "takeaway": "yes"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2464357923,
+   "lat": 22.5827956,
+   "lon": 88.4492497,
+   "tags": {
+    "amenity": "cafe",
+    "brand": "Cafe Coffee Day",
+    "brand:wikidata": "Q5017235",
+    "cuisine": "coffee_shop",
+    "name": "Cafe Coffee Day",
+    "takeaway": "yes"
+   }
+  }
+ ]
+}

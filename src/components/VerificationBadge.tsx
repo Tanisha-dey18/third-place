@@ -1,10 +1,11 @@
 import type { VerificationStatus } from '@/types';
 import { VERIFICATION_HELP, VERIFICATION_LABELS } from '@/lib/taxonomy';
-import { BadgeCheck, CircleHelp, Users, UserCheck, CircleDashed } from 'lucide-react';
+import { BadgeCheck, CircleHelp, Users, UserCheck, CircleDashed, Database } from 'lucide-react';
 
 const STYLE: Record<VerificationStatus, string> = {
   cafe_verified: 'bg-sage-light text-sage-dark',
   visitor_confirmed: 'bg-[#E9EEE2] text-[#56663F]',
+  source_provided: 'bg-[#EEE9E1] text-mocha',
   community_reported: 'bg-clay-light text-[#8A4F2E]',
   unverified: 'bg-sand text-mocha',
   unknown: 'bg-cream text-latte border border-dashed border-oat',
@@ -13,6 +14,7 @@ const STYLE: Record<VerificationStatus, string> = {
 const ICON = {
   cafe_verified: BadgeCheck,
   visitor_confirmed: UserCheck,
+  source_provided: Database,
   community_reported: Users,
   unverified: CircleDashed,
   unknown: CircleHelp,
