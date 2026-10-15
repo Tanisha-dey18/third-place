@@ -147,7 +147,7 @@ Copy `.env.example` to `.env.local` locally. On Netlify, set them under **Site c
 | `VITE_AI_SEARCH_ENABLED` | browser | yes | no | Enables calls to `/api/ai-search` |
 | `OVERPASS_CONTACT` | server | n/a | recommended | Contact **e-mail** in the User-Agent for OSM service operators. Never a URL: overpass-api.de answers HTTP 406 to User-Agents containing a site hostname. |
 | `OVERPASS_URLS` | server | n/a | no | Comma-separated https Overpass endpoints (e.g. paid or self-hosted). Default: `overpass-api.de`, `z.overpass-api.de`, `lz4.overpass-api.de` |
-| `PLACES_BUDGET_MS` | server | n/a | no | Time budget for a cold-start live fetch (default 40000; Netlify's limit is 60 s) |
+| `PLACES_BUDGET_MS` | server | n/a | no | Time budget for a cold-start live fetch (default 24000; Netlify returned a gateway 504 at ~30 s on this site) |
 | `APP_ORIGIN`, `AI_ALLOWED_ORIGINS` | server | n/a | no | Extra origins allowed to call `/api/*` cross-origin |
 | `AI_PROVIDER`, `AI_MODEL` | server | n/a | no | `anthropic` \| `gemini` \| `groq` |
 | `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` | server | **secret** | no | Only for the chosen AI provider |

@@ -269,3 +269,11 @@ test('env check warns when OVERPASS_CONTACT is not an e-mail', async () => {
   assert.ok(validateEnv({ OVERPASS_CONTACT: 'https://spontaneous-malabi-b849d6.netlify.app' }).some((i) => i.variable === 'OVERPASS_CONTACT' && /406/.test(i.message)));
   assert.ok(!validateEnv({ OVERPASS_CONTACT: 'ops@example.com' }).some((i) => i.variable === 'OVERPASS_CONTACT'));
 });
+
+test('default request budget stays inside the ~30 s Netlify gateway limit observed in production', async () => {
+  const src = (await import('node:fs')).readFileSync('netlify/functions/places.ts', 'utf8');
+  const budget = Number(src.match(/PLACES_BUDGET_MS\) \|\| ([\d_]+)/)![1].replace(/_/g, ''));
+  assert.ok(budget <= 25_000, `budget ${budget} ms must leave headroom under 30 s`);
+  const cfgDefaults = overpassConfigFromEnv({});
+  assert.ok((cfgDefaults.attemptTimeoutMs ?? 0) < 30_000 && (cfgDefaults.hedgeAfterMs ?? 0) < budget);
+});

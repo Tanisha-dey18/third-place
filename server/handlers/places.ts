@@ -24,8 +24,8 @@ interface RequestContext {
 
 export function createPlacesHandler(deps: PlacesHandlerDeps) {
   const limiter = createMemoryRateLimiter(deps.rateLimit?.limit ?? 120, deps.rateLimit?.windowMs ?? 60_000);
-  // Netlify's synchronous limit is 60 s; leave headroom for the response.
-  const budget = deps.budgetMs ?? 40_000;
+  // Netlify cut this site's functions off at ~30 s in production (observed 504 at 30.9 s), so stay well below.
+  const budget = deps.budgetMs ?? 24_000;
   let lastKick = 0;
 
   return async function handler(req: Request, context?: RequestContext): Promise<Response> {

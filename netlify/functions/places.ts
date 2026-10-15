@@ -6,7 +6,9 @@ import { serverEnv } from '../../server/http';
 const handler = createPlacesHandler({
   getDeps: snapshotDeps,
   env: serverEnv,
-  budgetMs: Number(process.env.PLACES_BUDGET_MS) || 40_000,
+  // Measured on this site: Netlify cuts synchronous functions off at ~30 s (HTTP 504).
+  // Stay well inside that so the function always returns its own structured response.
+  budgetMs: Number(process.env.PLACES_BUDGET_MS) || 24_000,
   // Fresh deploy with no snapshot yet: hand the slow fetch to the background function.
   kickRefresh: (req) => fetch(new URL('/api/internal/refresh-places', req.url), { method: 'POST' }),
 });

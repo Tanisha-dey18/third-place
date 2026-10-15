@@ -27,14 +27,18 @@ const cache = new Map<string, { at: number; promise: Promise<PlacesResponse> }>(
 async function request(url: string): Promise<PlacesResponse> {
   let res: Response;
   try {
-    // Must exceed the server budget (40 s; Netlify caps synchronous functions at 60 s).
-    res = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(50_000) });
+    // Must exceed the server budget (24 s) and Netlify's ~30 s gateway limit.
+    res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(35_000) });
   } catch (e) {
     const timeout = (e as Error).name === 'TimeoutError';
     throw new PlacesApiError(timeout ? 'The café data service took too long to respond.' : 'Can’t reach the café data service. Check your connection.', 'network_error', true, null);
   }
   const type = res.headers.get('content-type') ?? '';
   if (!type.includes('application/json')) {
+    // A gateway timeout/error page from the host (e.g. Netlify 502/504) is temporary: offer a retry.
+    if (res.status === 502 || res.status === 503 || res.status === 504) {
+      throw new PlacesApiError('The café data service took too long to respond. Please try again.', 'gateway_timeout', true, res.status);
+    }
     throw new PlacesApiError('The café data service isn’t available on this deployment.', 'api_unreachable', false, res.status);
   }
   const body = (await res.json().catch(() => null)) as (PlacesResponse & { error?: { code: string; message: string; retryable: boolean } }) | null;

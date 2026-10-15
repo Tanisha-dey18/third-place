@@ -69,7 +69,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   for (const [k, v] of Object.entries(env)) if (!k.startsWith('VITE_') && process.env[k] === undefined) process.env[k] = v;
   // Dev only: no 10 s function limit locally, and a disk cache that survives restarts.
-  process.env.PLACES_BUDGET_MS ??= '40000';
+  process.env.PLACES_BUDGET_MS ??= '24000';
   process.env.THIRD_PLACE_DEV_CACHE_DIR ??= fileURLToPath(new URL('./node_modules/.cache/third-place', import.meta.url));
 
   return {

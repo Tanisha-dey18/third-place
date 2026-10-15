@@ -97,8 +97,8 @@ export function overpassConfigFromEnv(env: Record<string, string | undefined>, f
     maxAttempts: 4,
     // Hedge only when an attempt hangs: normal answers take 3–8 s, and parallel queries
     // from one IP compete for the same small pool of Overpass slots.
-    hedgeAfterMs: 12_000,
-    attemptTimeoutMs: 30_000,
+    hedgeAfterMs: 8_000,
+    attemptTimeoutMs: 20_000,
   };
 }
 
