@@ -145,8 +145,9 @@ Copy `.env.example` to `.env.local` locally. On Netlify, set them under **Site c
 | `VITE_MAP_TILE_URL` / `VITE_MAP_ATTRIBUTION` | browser | yes (restrict key to domain) | recommended in production | Tile provider; default is OSM community tiles (light use only) |
 | `VITE_MAP_ENABLED` | browser | yes | no | `false` hides maps |
 | `VITE_AI_SEARCH_ENABLED` | browser | yes | no | Enables calls to `/api/ai-search` |
-| `OVERPASS_CONTACT` | server | n/a | recommended | Email or URL in the User-Agent for OSM service operators |
-| `OVERPASS_URLS` | server | n/a | no | Comma-separated https Overpass endpoints (e.g. paid or self-hosted) |
+| `OVERPASS_CONTACT` | server | n/a | recommended | Contact **e-mail** in the User-Agent for OSM service operators. Never a URL: overpass-api.de answers HTTP 406 to User-Agents containing a site hostname. |
+| `OVERPASS_URLS` | server | n/a | no | Comma-separated https Overpass endpoints (e.g. paid or self-hosted). Default: `overpass-api.de`, `z.overpass-api.de`, `lz4.overpass-api.de` |
+| `PLACES_BUDGET_MS` | server | n/a | no | Time budget for a cold-start live fetch (default 40000; Netlify's limit is 60 s) |
 | `APP_ORIGIN`, `AI_ALLOWED_ORIGINS` | server | n/a | no | Extra origins allowed to call `/api/*` cross-origin |
 | `AI_PROVIDER`, `AI_MODEL` | server | n/a | no | `anthropic` \| `gemini` \| `groq` |
 | `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` | server | **secret** | no | Only for the chosen AI provider |
@@ -293,11 +294,18 @@ npm run test:db
 
 ---
 
+## Diagnostics
+
+- `GET /api/health` returns: whether the shared cache is Netlify Blobs or memory-only, each city's snapshot (place count, age), and the last refresh (trigger, outcome, and every Overpass attempt as host / HTTP status / duration). It contains no secrets and no user data, and is never cached.
+- Function logs carry one JSON line per event: `places_request` (query kind, status, `tier` = snapshot or live, duration, counts), `overpass_attempt` (host, status, ms, outcome) and `snapshot_refresh` / `scheduled_refresh` / `background_handoff`. They never include IP addresses, coordinates or search text.
+
 ## Troubleshooting
+
+> **Resolved production incident (Oct 2026):** every `/api/places` call returned 503 within a second. Cause: the server sent `User-Agent: THIRD-PLACE/1.0 (https://<site>.netlify.app)`, built from Netlify's `URL` variable, and overpass-api.de answers any User-Agent containing a site hostname with **HTTP 406 Not Acceptable**. The old code treated 406 as non-retryable. The User-Agent is now fixed (`ThirdPlace/1.0 (Kolkata cafe discovery[; contact: e-mail])`), and 406/403 are logged as `rejected`.
 
 | Symptom | Cause / fix |
 |---|---|
-| "Live café data is being refreshed…" (503) | No snapshot yet and Overpass is slow. Wait a minute; the background function is building it. Check the function logs for `refresh-places-background`. |
+| "Café data from OpenStreetMap couldn’t be loaded right now…" (503) | No snapshot yet and every Overpass attempt failed. Open `/api/health`: `sharedCache` must be `netlify-blobs`, and `lastRefresh.attempts` lists each host/status/duration. The background function keeps retrying for up to 15 min after a failure. |
 | Persistent 503s | Overpass is overloaded or unreachable. Set `OVERPASS_URLS` to another instance, then redeploy. |
 | "The café data service isn't available on this deployment" | `/api/places` returned non-JSON: `vite preview` or static hosting without functions. Use `npm run dev` or `npx netlify dev`, or deploy to Netlify. |
 | Build fails at `check:env` | Read the error. Common causes: demo mode on in production, a secret in a `VITE_*` variable, or only one of the two Supabase variables set. |

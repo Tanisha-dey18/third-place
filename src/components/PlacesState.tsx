@@ -33,7 +33,7 @@ export function PlacesStateView({
   if ((state.status === 'loading' || state.status === 'idle') && state.places.length === 0) {
     return (
       <div aria-busy="true" aria-live="polite">
-        <span className="sr-only">Loading cafés…</span>
+        <p className="mb-4 text-sm text-mocha">Loading live café data from OpenStreetMap… The first load after an update can take up to half a minute.</p>
         <GridSkeleton count={skeletonCount} />
       </div>
     );

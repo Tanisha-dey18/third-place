@@ -52,7 +52,8 @@ Steps marked 🧑 are **external account setup** that only the owner can do (das
 
 ## 4. After the first deploy
 
-- [ ] Open the site. The first `/api/places` call kicks off `refresh-places-background` ✅.
+- [ ] Open the site. The first `/api/places` call fetches the snapshot live (up to ~40 s if Overpass is busy). If that fails, it hands off to `refresh-places-background` ✅.
+- [ ] `curl -s https://<site>/api/health` should show `"sharedCache":"netlify-blobs"` and `"snapshot":{"present":true,…}`. If it says `memory-only`, Netlify Blobs isn't reachable from the functions; check the deploy log.
 - [ ] Within about a minute:
   ```bash
   curl -s "https://<site>/api/places?near=22.55,88.35&r=2" | head -c 300

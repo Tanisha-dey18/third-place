@@ -6,7 +6,7 @@ import { serverEnv } from '../../server/http';
 const handler = createPlacesHandler({
   getDeps: snapshotDeps,
   env: serverEnv,
-  budgetMs: Number(process.env.PLACES_BUDGET_MS) || 8_500,
+  budgetMs: Number(process.env.PLACES_BUDGET_MS) || 40_000,
   // Fresh deploy with no snapshot yet: hand the slow fetch to the background function.
   kickRefresh: (req) => fetch(new URL('/api/internal/refresh-places', req.url), { method: 'POST' }),
 });

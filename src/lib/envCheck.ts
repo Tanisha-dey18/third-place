@@ -61,7 +61,10 @@ export function validateEnv(env: Record<string, string | undefined>, opts: { con
     issues.push({ level: 'warning', variable: 'VITE_MAP_TILE_URL', message: 'Using OpenStreetMap community tiles, which are not for heavy production traffic. Configure a tile provider.' });
   }
   if (production && !get('OVERPASS_CONTACT')) {
-    issues.push({ level: 'warning', variable: 'OVERPASS_CONTACT', message: 'Set a contact (email or URL) so OpenStreetMap service operators can reach you.' });
+    issues.push({ level: 'warning', variable: 'OVERPASS_CONTACT', message: 'Set a contact e-mail so OpenStreetMap service operators can reach you.' });
+  }
+  if (get('OVERPASS_CONTACT') && !/^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,180}.[A-Za-z]{2,24}$/.test(get('OVERPASS_CONTACT'))) {
+    issues.push({ level: 'warning', variable: 'OVERPASS_CONTACT', message: 'Must be a plain e-mail address. URLs/hostnames are ignored because overpass-api.de rejects User-Agents containing them (HTTP 406).' });
   }
   const provider = get('AI_PROVIDER');
   if (get('VITE_AI_SEARCH_ENABLED') === 'true' && !provider) {

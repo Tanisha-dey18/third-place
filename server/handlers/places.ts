@@ -24,7 +24,8 @@ interface RequestContext {
 
 export function createPlacesHandler(deps: PlacesHandlerDeps) {
   const limiter = createMemoryRateLimiter(deps.rateLimit?.limit ?? 120, deps.rateLimit?.windowMs ?? 60_000);
-  const budget = deps.budgetMs ?? 8_500;
+  // Netlify's synchronous limit is 60 s; leave headroom for the response.
+  const budget = deps.budgetMs ?? 40_000;
   let lastKick = 0;
 
   return async function handler(req: Request, context?: RequestContext): Promise<Response> {
@@ -42,15 +43,17 @@ export function createPlacesHandler(deps: PlacesHandlerDeps) {
     const parsed = parseQueryParams(new URL(req.url).searchParams);
     if (!parsed.ok) return json(parsed.status, parsed.error, { ...cors, ...NO_STORE });
 
+    let tier = 'snapshot';
+    // One structured line per request: what was asked (kind only), how it was served, how long it took.
+    // No IP addresses, coordinates or search text are logged.
+    const logRequest = (status: number, extra: Record<string, unknown> = {}) =>
+      console.log(JSON.stringify({ evt: 'places_request', kind: parsed.query.kind, status, tier, ms: Date.now() - started, ...extra }));
     try {
       const sDeps = await deps.getDeps();
       const deadline = started + budget;
-      // No snapshot yet (fresh deploy)? Start a background build first, then try a quick live fetch.
-      if (deps.kickRefresh && Date.now() - lastKick > 120_000 && !(await sDeps.cache.get(snapshotKey(parsed.cityId)))) {
-        lastKick = Date.now();
-        const kick = deps.kickRefresh(req).catch(() => undefined);
-        context?.waitUntil?.(kick);
-      }
+      if (!sDeps.cache.shared) tier = 'snapshot(memory-only)';
+      const hadSnapshot = !!(await sDeps.cache.get(snapshotKey(parsed.cityId)));
+      if (!hadSnapshot) tier = 'live';
       const { snapshot, stale } = await getSnapshot(sDeps, parsed.cityId, { deadline, allowLiveFetch: true });
       const result = runQuery(snapshot.places, parsed.query, parsed.limit);
       let places = result.places;
@@ -80,16 +83,25 @@ export function createPlacesHandler(deps: PlacesHandlerDeps) {
       };
       // Keys lookups change as places are found; cache them for less time.
       const cache = parsed.query.kind === 'keys' ? publicCache(60, 600, 3600) : publicCache(300, 1800, 86400);
+      logRequest(200, { returned: places.length, total: result.total, snapshotAgeMin: Math.round((Date.now() - Date.parse(snapshot.fetchedAt)) / 60000), stale });
       return json(200, body, { ...cors, ...cache });
     } catch (e) {
       if (e instanceof ProviderError) {
-        return json(503, errorBody('provider_unavailable', 'Live café data is being refreshed from OpenStreetMap right now. Please try again in a minute.', true), {
+        // Only now hand over to the background function (up to 15 min of patient, sequential retries).
+        // Never in parallel with the request's own attempts: overpass-api.de limits concurrent queries per IP.
+        if (deps.kickRefresh && Date.now() - lastKick > 120_000) {
+          lastKick = Date.now();
+          const kick = deps.kickRefresh(req).catch(() => undefined);
+          context?.waitUntil?.(kick);
+        }
+        logRequest(503, { error: e.message, attempts: e.attempts.map((a) => `${a.host}:${a.status ?? a.outcome}:${a.ms}ms`) });
+        return json(503, errorBody('provider_unavailable', 'Café data from OpenStreetMap couldn’t be loaded right now because the public map-data service is busy or unreachable. No other data is shown in its place. Please try again in a minute.', true), {
           ...cors,
           ...NO_STORE,
           'Retry-After': '60',
         });
       }
-      console.error('[places] unexpected error', (e as Error).name);
+      logRequest(500, { error: (e as Error).name });
       return json(500, errorBody('internal_error', 'Something went wrong.', true), { ...cors, ...NO_STORE });
     }
   };

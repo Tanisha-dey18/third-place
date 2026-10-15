@@ -2,7 +2,7 @@ import type { Cafe } from '../src/types';
 import { getCity } from '../src/lib/cities';
 import { normalizeOsmElements, type NormalizeSummary } from '../src/lib/places/osm';
 import type { Cache } from './cache';
-import { areaQuery, idsQuery, ProviderError, runOverpass, type OverpassConfig } from './overpass';
+import { areaQuery, idsQuery, ProviderError, runOverpass, type AttemptLog, type OverpassConfig } from './overpass';
 
 // ───────────────────────────────────────────────────────────────
 // City snapshot: every café-like OSM venue in the city, normalised,
@@ -19,7 +19,7 @@ export const SNAPSHOT_VERSION = 'v1';
 /** Target freshness. Older snapshots are still served, flagged `stale`. */
 export const SNAPSHOT_FRESH_MS = 12 * 60 * 60 * 1000;
 /** Don't hammer the provider after a failure (per instance). */
-const FAILURE_BACKOFF_MS = 60 * 1000;
+const FAILURE_BACKOFF_MS = 30 * 1000;
 const ELEMENT_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface Snapshot {
@@ -28,12 +28,36 @@ export interface Snapshot {
   fetchedAt: string;
   osmBase: string | null;
   stats: Pick<NormalizeSummary, 'skipped' | 'duplicatesRemoved'> & { elements: number };
+  /** Provider attempts that produced this snapshot (diagnostics). */
+  attempts?: AttemptLog[];
 }
 
 export interface SnapshotDeps {
   cache: Cache;
   overpass: OverpassConfig;
   now?: () => number;
+  /** Structured diagnostics sink (defaults to one JSON line on stdout). Never receives user data. */
+  log?: (event: Record<string, unknown>) => void;
+}
+
+export const defaultLog = (event: Record<string, unknown>) => console.log(JSON.stringify(event));
+
+/** Last refresh attempt per city, kept in the shared store for /api/health. */
+export interface RefreshStatus {
+  at: string;
+  ok: boolean;
+  trigger: string;
+  reason: string;
+  count: number | null;
+  attempts: AttemptLog[];
+}
+export const refreshStatusKey = (cityId: string) => `refresh-status/${cityId}`;
+
+async function recordStatus(deps: SnapshotDeps, cityId: string, status: Omit<RefreshStatus, 'at'>) {
+  const now = deps.now ?? Date.now;
+  const entry: RefreshStatus = { ...status, at: new Date(now()).toISOString(), attempts: status.attempts.slice(-8) };
+  (deps.log ?? defaultLog)({ evt: 'snapshot_refresh', city: cityId, ...entry });
+  await deps.cache.set(refreshStatusKey(cityId), entry);
 }
 
 export const snapshotKey = (cityId: string) => `snapshot/${SNAPSHOT_VERSION}/${cityId}`;
@@ -45,7 +69,8 @@ export async function fetchSnapshot(deps: SnapshotDeps, cityId: string, deadline
   const city = getCity(cityId);
   const now = deps.now ?? Date.now;
   const timeoutSec = Math.max(5, Math.floor((deadline - now()) / 1000) - 1);
-  const result = await runOverpass(areaQuery(city.bounds, timeoutSec), deps.overpass, deadline);
+  const log = deps.log ?? defaultLog;
+  const result = await runOverpass(areaQuery(city.bounds, timeoutSec), deps.overpass, deadline, (a) => log({ evt: 'overpass_attempt', city: city.id, ...a }));
   const fetchedAt = new Date(now()).toISOString();
   const summary = normalizeOsmElements(result.elements, { cityId: city.id, fetchedAt });
   return {
@@ -54,6 +79,7 @@ export async function fetchSnapshot(deps: SnapshotDeps, cityId: string, deadline
     fetchedAt,
     osmBase: result.osmBase,
     stats: { skipped: summary.skipped, duplicatesRemoved: summary.duplicatesRemoved, elements: result.elements.length },
+    attempts: result.attempts,
   };
 }
 
@@ -79,10 +105,12 @@ export async function getSnapshot(
     p = fetchSnapshot(deps, cityId, opts.deadline)
       .then(async (snap) => {
         if (snap.places.length > 0) await deps.cache.set(snapshotKey(cityId), snap);
+        await recordStatus(deps, cityId, { ok: snap.places.length > 0, trigger: 'request', reason: snap.places.length ? 'fetched on demand' : 'provider returned no places', count: snap.places.length, attempts: snap.attempts ?? [] });
         return snap;
       })
-      .catch((e) => {
+      .catch(async (e) => {
         lastFailure.set(cityId, now());
+        await recordStatus(deps, cityId, { ok: false, trigger: 'request', reason: (e as Error).message, count: null, attempts: (e as ProviderError).attempts ?? [] }).catch(() => undefined);
         throw e;
       })
       .finally(() => inflight.delete(cityId));
@@ -103,16 +131,26 @@ export interface RefreshOutcome {
  * Scheduled refresh. Refuses to replace a good snapshot with a suspiciously
  * small one (e.g. a provider that silently returned partial data).
  */
-export async function refreshSnapshot(deps: SnapshotDeps, cityId: string, deadline: number): Promise<RefreshOutcome> {
+export async function refreshSnapshot(deps: SnapshotDeps, cityId: string, deadline: number, trigger = 'scheduled'): Promise<RefreshOutcome> {
   const previous = await deps.cache.get<Snapshot>(snapshotKey(cityId));
   const prevCount = previous?.value.places.length ?? null;
-  const snap = await fetchSnapshot(deps, cityId, deadline);
-  if (snap.places.length === 0) return { cityId, updated: false, reason: 'provider returned no places; kept previous snapshot', count: 0, previousCount: prevCount };
-  if (prevCount != null && snap.places.length < prevCount * 0.5) {
-    return { cityId, updated: false, reason: 'new snapshot is less than half the previous size; kept previous', count: snap.places.length, previousCount: prevCount };
+  let snap: Snapshot;
+  try {
+    snap = await fetchSnapshot(deps, cityId, deadline);
+  } catch (e) {
+    await recordStatus(deps, cityId, { ok: false, trigger, reason: (e as Error).message, count: null, attempts: (e as ProviderError).attempts ?? [] }).catch(() => undefined);
+    throw e;
   }
-  await deps.cache.set(snapshotKey(cityId), snap);
-  return { cityId, updated: true, reason: 'refreshed', count: snap.places.length, previousCount: prevCount };
+  let outcome: RefreshOutcome;
+  if (snap.places.length === 0) outcome = { cityId, updated: false, reason: 'provider returned no places; kept previous snapshot', count: 0, previousCount: prevCount };
+  else if (prevCount != null && snap.places.length < prevCount * 0.5) {
+    outcome = { cityId, updated: false, reason: 'new snapshot is less than half the previous size; kept previous', count: snap.places.length, previousCount: prevCount };
+  } else {
+    await deps.cache.set(snapshotKey(cityId), snap);
+    outcome = { cityId, updated: true, reason: 'refreshed', count: snap.places.length, previousCount: prevCount };
+  }
+  await recordStatus(deps, cityId, { ok: outcome.updated, trigger, reason: outcome.reason, count: outcome.count, attempts: snap.attempts ?? [] });
+  return outcome;
 }
 
 const LOCK_TTL_MS = 5 * 60 * 1000;
@@ -136,7 +174,7 @@ export async function backgroundRefresh(deps: SnapshotDeps, cityId: string, opts
   let lastError = 'unknown error';
   for (let attempt = 1; now() < end - 10_000; attempt++) {
     try {
-      const outcome = await refreshSnapshot({ ...deps, overpass: { ...deps.overpass, maxAttempts: 2 } }, cityId, Math.min(end, now() + 120_000));
+      const outcome = await refreshSnapshot(deps, cityId, Math.min(end, now() + 120_000), 'background');
       await deps.cache.set(lockKey(cityId), 0);
       return outcome;
     } catch (e) {

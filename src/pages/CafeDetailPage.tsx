@@ -31,7 +31,7 @@ export default function CafeDetailPage() {
   const keys = useMemo(() => (key ? [key] : []), [key]);
   const state = usePlacesByKeys(keys);
   const cafe = state.places.find((p) => p.id === key);
-  useDocumentTitle(cafe?.name ?? (state.status === 'loading' ? 'Loading' : 'Place not found'));
+  useDocumentTitle(cafe?.name ?? (state.status === 'loading' ? 'Loading' : state.status === 'error' ? 'Couldn’t load' : 'Place not found'));
 
   if (!key) return <NotFound reason="That link doesn’t look like a THIRD PLACE listing." />;
   if (state.status === 'error' && !cafe) {

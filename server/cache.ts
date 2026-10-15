@@ -57,15 +57,22 @@ export function createCache(blobs: BlobLike | null, now: () => number = Date.now
   };
 }
 
-/** Netlify Blobs store when running on Netlify; null elsewhere (never throws). */
+/**
+ * Netlify Blobs store when running on Netlify; null elsewhere (never throws).
+ *
+ * Detection is delegated to @netlify/blobs itself: getStore() throws
+ * MissingBlobsEnvironmentError when no context is available. (An earlier
+ * version pre-checked process.env.NETLIFY_BLOBS_CONTEXT, but the v2 function
+ * runtime exposes that context via Netlify.env, so the check wrongly
+ * returned null in production and every instance fell back to memory.)
+ */
 export async function netlifyBlobStore(name: string): Promise<BlobLike | null> {
-  // Netlify injects this context into functions; elsewhere Blobs aren't available.
-  if (!process.env.NETLIFY_BLOBS_CONTEXT && !(globalThis as { netlifyBlobsContext?: unknown }).netlifyBlobsContext) return null;
   try {
     const { getStore } = await import('@netlify/blobs');
     const store = getStore({ name, consistency: 'strong' });
     return store as unknown as BlobLike;
-  } catch {
+  } catch (e) {
+    if ((e as Error).constructor?.name !== 'MissingBlobsEnvironmentError' && (e as Error).name !== 'MissingBlobsEnvironmentError') console.warn('[cache] Netlify Blobs unavailable:', (e as Error).name);
     return null;
   }
 }

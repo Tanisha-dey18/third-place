@@ -27,7 +27,8 @@ const cache = new Map<string, { at: number; promise: Promise<PlacesResponse> }>(
 async function request(url: string): Promise<PlacesResponse> {
   let res: Response;
   try {
-    res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
+    // Must exceed the server budget (40 s; Netlify caps synchronous functions at 60 s).
+    res = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(50_000) });
   } catch (e) {
     const timeout = (e as Error).name === 'TimeoutError';
     throw new PlacesApiError(timeout ? 'The café data service took too long to respond.' : 'Can’t reach the café data service. Check your connection.', 'network_error', true, null);
