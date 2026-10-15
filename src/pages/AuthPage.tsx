@@ -54,7 +54,7 @@ export default function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
 
         {!configured ? (
           <div className="card p-6 text-sm text-mocha">
-            <h2 className="mb-2 font-sans text-base font-semibold text-espresso">Accounts aren’t available in demo mode</h2>
+            <h2 className="mb-2 font-sans text-base font-semibold text-espresso">Accounts aren’t set up on this deployment yet</h2>
             <p>
               This deployment has no Supabase project configured, so we can’t create secure accounts. We won’t fake a login with a browser flag. You can still save places and build collections. They’re kept in this browser only.
             </p>

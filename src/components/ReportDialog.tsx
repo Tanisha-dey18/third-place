@@ -69,7 +69,7 @@ export function ReportDialog({
         facility: parsed.data.facility as FacilityKey | null,
         reportedAvailable: type === 'facility' ? avail === 'yes' : null,
       });
-      toast.show(community.mode === 'device' ? 'Report saved on this device (demo mode — not sent anywhere)' : 'Thanks! Your report will be reviewed before anything changes.');
+      toast.show(community.mode === 'device' ? 'Report saved on this device only. Reporting isn’t connected on this deployment yet, so it hasn’t been sent.' : 'Thanks! Your report will be reviewed before anything changes.');
       setDetails('');
       setValue('');
       onClose();

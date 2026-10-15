@@ -150,6 +150,7 @@ Copy `.env.example` to `.env.local` locally. On Netlify, set them under **Site c
 | `PLACES_BUDGET_MS` | server | n/a | no | Time budget for a cold-start live fetch (default 24000; Netlify returned a gateway 504 at ~30 s on this site) |
 | `APP_ORIGIN`, `AI_ALLOWED_ORIGINS` | server | n/a | no | Extra origins allowed to call `/api/*` cross-origin |
 | `AI_PROVIDER`, `AI_MODEL` | server | n/a | no | `anthropic` \| `gemini` \| `groq` |
+| `AI_DAILY_LIMIT` | server | n/a | no | Max AI provider calls per UTC day across all users (default 500); protects against cost spikes |
 | `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` | server | **secret** | no | Only for the chosen AI provider |
 
 Netlify sets `URL`, `DEPLOY_PRIME_URL`, `CONTEXT` and the Blobs context automatically. **This app never uses the Supabase service-role key**, so don't add it to the site.
@@ -253,7 +254,13 @@ AI_MODEL=claude-haiku-5-5        # optional; default claude-opus-5-5
 ## Security
 
 - **Secrets:** only in server-side variables. `check:env` rejects secret-looking values in `VITE_*` variables, and the browser refuses a service-role key.
-- **Rate limiting:** Netlify **platform rate limiting** (shared across all instances) on every function, configured via `config.rateLimit`: places 120/min, geocode 20/min, AI 20/min, background refresh 6/min. In-memory limiters add a per-instance safety net.
+- **Rate limiting:**
+  - **Shared limiter (Netlify Blobs):** on the routes that cost money or touch rate-limited third parties.
+    - `/api/ai-search`: 20 requests/min per client, plus `AI_DAILY_LIMIT` per day overall.
+    - `/api/geocode`: 10 requests/min per client and 2,000/day overall, counted only on cache misses that reach Nominatim.
+  - **How it works:** counters live in the `third-place-ratelimit` store, keyed by a SHA-256 hash of the client IP, so raw IPs are never stored. It's approximate, because Blobs writes aren't atomic. The scheduled job sweeps old windows.
+  - **Why not Netlify's rules:** the `config.rateLimit` rules in each function are kept, but on 15 Oct 2026 they were **verified not to be enforced** on this site (36 rapid requests to a 30/min route all returned 200), probably because of the plan.
+  - **Per-instance limiters:** `/api/places` (mostly served from the CDN-cached snapshot) and `/api/health` keep in-memory limiters as a safety net.
 - **Input validation:** zod and strict parsers, with structured JSON errors.
   - **Size limits:** URLs ≤ 2 KB, AI bodies ≤ 8 KB, search ≤ 60 characters, keys ≤ 50, bbox ≤ 0.4°, radius ≤ 20 km.
   - **Injection:** user text is never interpolated into Overpass queries; name search runs on the snapshot.
@@ -324,7 +331,9 @@ npm run test:db
 - **Single city:** saved places outside the snapshot area resolve through per-element lookups, which only succeed for places inside the city's bounds.
 - **No clustering:** at most 300 markers per view, so clustering wasn't needed.
 - **Not verified live in this environment:**
-  - **Netlify deployment:** routing, Blobs, platform rate limiting and the scheduled and background functions follow the documented `@netlify/functions` v6 API, but haven't been deployed from here.
+  - **Netlify:** routing, Blobs, `/api/places`, `/api/health`, `/api/geocode` and the AI 503 fallback were verified live on 15 Oct 2026. The scheduled job (`refresh-places`) and background function haven't been observed running, because function logs require dashboard access. Netlify's platform rate-limit rules are **not** enforced on this site; the shared Blobs limiter covers the routes that matter.
+  - **Production configuration (verified 15 Oct 2026):** Supabase is **not configured**, so accounts, synced saves, public reviews and reports run in device-only mode. AI search is not configured, so the rule-based parser is used.
+  - **Console message:** browsers log a CSP error for an inline script injected by Netlify's own toolbar script (`/.netlify/scripts/hud`). The site's HTML has no inline scripts and the app is unaffected. To remove it, disable the Netlify Drawer/toolbar for the site rather than loosening `script-src`.
   - **Supabase:** the SQL was validated with PGlite, but there was no live Supabase project, so Auth flows weren't exercised end-to-end.
   - **AI search:** there were no AI API keys, so no live provider call was made.
 - **Overpass:** the public instance was intermittently overloaded (HTTP 504) during development. Production should set `OVERPASS_CONTACT` and consider a dedicated instance for reliability.

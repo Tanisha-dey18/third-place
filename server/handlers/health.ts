@@ -1,6 +1,6 @@
 import { CITIES } from '../../src/lib/cities';
 import { refreshStatusKey, snapshotKey, type RefreshStatus, type Snapshot, type SnapshotDeps } from '../snapshot';
-import { json, NO_STORE } from '../http';
+import { clientIp, createMemoryRateLimiter, json, NO_STORE } from '../http';
 import { buildUserAgent } from '../overpass';
 
 // GET /api/health: operational diagnostics for the café data pipeline.
@@ -9,7 +9,10 @@ import { buildUserAgent } from '../overpass';
 // outcome (per provider host) of the most recent refresh attempt.
 
 export function createHealthHandler(deps: { getDeps(): Promise<SnapshotDeps>; env: () => Record<string, string | undefined> }) {
+  const limiter = createMemoryRateLimiter(30, 60_000);
   return async function handler(req: Request): Promise<Response> {
+    const wait = limiter.check(clientIp(req));
+    if (wait) return json(429, { error: { code: 'rate_limited', message: 'Too many requests.', retryable: true } }, { ...NO_STORE, 'Retry-After': String(wait) });
     if (req.method !== 'GET') return json(405, { error: { code: 'method_not_allowed', message: 'Use GET.', retryable: false } }, { ...NO_STORE, Allow: 'GET' });
     const sDeps = await deps.getDeps();
     const env = deps.env();

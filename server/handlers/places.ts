@@ -61,7 +61,8 @@ export function createPlacesHandler(deps: PlacesHandlerDeps) {
       if (parsed.query.kind === 'keys' && missing?.length) {
         const osmMissing = missing.filter((k) => k.startsWith('osm:'));
         if (osmMissing.length && Date.now() < deadline - 2000) {
-          const extra = await lookupElements(sDeps, parsed.cityId, osmMissing, deadline);
+          // Per-element fallback for places not in the snapshot: keep it short so saved-place pages stay responsive.
+          const extra = await lookupElements(sDeps, parsed.cityId, osmMissing, Math.min(deadline, Date.now() + 8_000));
           places = [...places, ...extra.found];
           missing = missing.filter((k) => !extra.found.some((f) => f.id === k));
         }

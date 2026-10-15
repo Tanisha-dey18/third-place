@@ -48,7 +48,7 @@ export default function CollectionsPage() {
           <div>
             <h2 className="text-2xl">Your collections</h2>
             <p className="text-sm text-mocha">
-              {mode === 'account' ? 'Synced to your account.' : configured && !user ? 'Stored on this device. Log in to sync them to your account.' : 'Stored on this device only (demo mode).'}
+              {mode === 'account' ? 'Synced to your account.' : configured && !user ? 'Stored on this device. Log in to sync them to your account.' : 'Stored on this device only. Accounts aren’t configured on this deployment.'}
             </p>
           </div>
           <button onClick={() => setCreating(true)} className="btn-primary">

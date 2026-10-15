@@ -64,7 +64,7 @@ Steps marked 🧑 are **external account setup** that only the owner can do (das
   - `https://<site>/cafe/osm-node-2561110172` loads directly (SPA deep link);
   - `https://<site>/explore?area=gariahat` loads.
 - [ ] Functions → logs: `refresh-places` (scheduled every 6 h) logs `{"updated":true,…}`.
-- [ ] Netlify **Rate limiting**: confirm the rules from the function configs are listed under the site's security settings. Code-based rules need a plan that supports them; if they're unavailable, the in-memory limiters still apply per instance.
+- [ ] Rate limiting: Netlify's code-based rules were **not enforced** on this site (verified 15 Oct 2026). The app's shared Blobs limiter protects `/api/ai-search` and `/api/geocode` regardless. With an AI provider configured, 21 rapid POSTs to `/api/ai-search` should end in `429`.
 - [ ] Response headers: `curl -I https://<site>/` shows the CSP, HSTS and frame headers.
 - [ ] If Supabase is configured: sign up, confirm the email, save a place, create a collection, post a review, and check that a second account can't see the first account's saved places.
 

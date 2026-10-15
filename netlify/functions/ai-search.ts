@@ -21,13 +21,20 @@ import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import * as z from 'zod/v4';
 import { sanitizePreferences } from '../../src/lib/engine/sanitize';
 import { ATMOSPHERE_LABELS, FACILITY_LABELS, NEIGHBOURHOODS, OCCASION_LABELS } from '../../src/lib/taxonomy';
-import { clientIp, corsHeaders, createMemoryRateLimiter, errorBody, json, NO_STORE, serverEnv } from '../../server/http';
+import { clientIp, corsHeaders, errorBody, json, NO_STORE, serverEnv } from '../../server/http';
+import { createSharedRateLimiter, rateLimitStore } from '../../server/rateLimit';
 
 type Provider = 'anthropic' | 'gemini' | 'groq';
 
 const MAX_BODY = 8_000;
 // Safety net only; the shared limit is Netlify's platform rate limiting (see config below).
-const limiter = createMemoryRateLimiter(20, 60_000);
+// Shared across all function instances (Netlify Blobs). Netlify's platform rate-limit rules were
+// verified NOT to be enforced on this site, and an in-memory counter only sees one instance.
+// AI_DAILY_LIMIT caps total provider calls per UTC day to bound cost (default 500).
+const limiter = createSharedRateLimiter(
+  { route: 'ai', perClient: 20, windowMs: 60_000, globalPerDay: Math.max(1, Number(process.env.AI_DAILY_LIMIT) || 500) },
+  rateLimitStore,
+);
 
 const DEFAULT_MODELS: Record<Provider, string> = {
   anthropic: 'claude-opus-5-5',
@@ -202,8 +209,12 @@ export default async function handler(req: Request): Promise<Response> {
   const cfg = providerConfig();
   if (!cfg) return json(503, errorBody('not_configured', 'AI search is not configured.'), h);
 
-  const wait = limiter.check(clientIp(req));
-  if (wait) return json(429, errorBody('rate_limited', 'Too many requests, please slow down.', true), { ...h, 'Retry-After': String(wait) });
+  const decision = await limiter.check(clientIp(req));
+  if (!decision.allowed) {
+    console.log(JSON.stringify({ evt: 'rate_limited', route: 'ai', reason: decision.reason, shared: decision.shared }));
+    const msg = decision.reason === 'global' ? 'AI search has reached today’s limit. Rule-based search still works.' : 'Too many requests, please slow down.';
+    return json(429, errorBody('rate_limited', msg, true), { ...h, 'Retry-After': String(decision.retryAfter) });
+  }
 
   const declared = Number(req.headers.get('content-length') ?? '0');
   if (declared > MAX_BODY) return json(413, errorBody('too_large', 'Request too large.'), h);

@@ -3,6 +3,7 @@ import { CITIES } from '../../src/lib/cities';
 import { snapshotDeps } from '../../server/deps';
 import { refreshSnapshot } from '../../server/snapshot';
 import { serverEnv } from '../../server/http';
+import { rateLimitStore, sweepRateLimits } from '../../server/rateLimit';
 
 // Scheduled: refreshes each city's OpenStreetMap snapshot four times a day
 // (~4 Overpass requests/day/city), so visitor traffic never hits Overpass.
@@ -30,6 +31,12 @@ export default async function handler(): Promise<Response> {
     } catch (e) {
       console.log(JSON.stringify({ evt: 'background_handoff', error: (e as Error).name }));
     }
+  }
+  try {
+    const store = await rateLimitStore();
+    if (store) console.log(JSON.stringify({ evt: 'ratelimit_sweep', removed: await sweepRateLimits(store as Parameters<typeof sweepRateLimits>[0]) }));
+  } catch (e) {
+    console.log(JSON.stringify({ evt: 'ratelimit_sweep', error: (e as Error).name }));
   }
   return new Response(null, { status: 204 });
 }

@@ -1,6 +1,7 @@
 import { getCity, withinBounds } from '../../src/lib/cities';
 import { sanitizeSearch } from '../../src/lib/places/query';
 import type { Cache } from '../cache';
+import type { SharedRateLimiter } from '../rateLimit';
 import { clientIp, corsHeaders, createMemoryRateLimiter, errorBody, json, NO_STORE, publicCache } from '../http';
 
 // GET /api/geocode?q=Hindustan Park  → up to 5 named areas inside the city.
@@ -18,6 +19,8 @@ export interface GeocodeResult {
 }
 
 export interface GeocodeDeps {
+  /** Shared limiter applied before calls that reach Nominatim (optional; tests may omit). */
+  sharedLimiter?: SharedRateLimiter;
   cache: () => Promise<Cache>;
   fetch: typeof fetch;
   env: () => Record<string, string | undefined>;
@@ -49,6 +52,10 @@ export function createGeocodeHandler(deps: GeocodeDeps) {
     const hit = await cache.get<GeocodeResult[]>(key);
     if (hit && now() - hit.storedAt < CACHE_TTL_MS) return json(200, { results: hit.value, attribution: '© OpenStreetMap contributors' }, { ...cors, ...publicCache(3600, 86400, 604800) });
 
+    if (deps.sharedLimiter) {
+      const decision = await deps.sharedLimiter.check(clientIp(req));
+      if (!decision.allowed) return json(429, errorBody('rate_limited', 'Too many searches. Please wait a moment.', true), { ...cors, ...NO_STORE, 'Retry-After': String(decision.retryAfter) });
+    }
     // Respect 1 request/second (per instance; the 30-day cache keeps volume tiny).
     const gap = now() - lastCall;
     if (gap < 1100) {
